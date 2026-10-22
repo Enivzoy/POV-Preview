@@ -22,6 +22,7 @@ import net.minecraft.client.multiplayer.ClientLevel
 import net.minecraft.client.player.LocalPlayer
 import net.minecraft.client.renderer.GameRenderer
 import net.minecraft.client.renderer.RenderPipelines
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation
 import net.minecraft.client.renderer.fog.FogRenderer
 import net.minecraft.client.renderer.state.GameRenderState
 import net.minecraft.client.renderer.state.gui.BlitRenderState
@@ -182,6 +183,90 @@ object PovCapture {
         runFrame(deltaTracker)
     }
 
+    fun isMultiViewWanted(): Boolean {
+        return PovPreviews.wants() && blitsSubmitted > 0 && !disabledForSession && !capturing && PovPreviews.multiViewEnabled
+    }
+
+    fun renderMultiView(
+        deltaTracker: DeltaTracker,
+        original: Operation<Void>,
+        self: GameRenderer,
+    ): Boolean {
+        val mc = Minecraft.getInstance()
+        val level = mc.level ?: return false
+        val player = mc.player ?: return false
+        val gameRenderer = mc.gameRenderer
+        val invoker = gameRenderer as GameRendererInvoker
+        val fog = invoker.cpFogRenderer()
+        val state = gameRenderer.gameRenderState()
+        val gui = state.guiRenderState
+
+        val partialTicks = deltaTracker.getGameTimeDeltaPartialTick(true)
+        val quadrants = mutableListOf<MultiViewRenderer.QuadrantConfig>()
+
+        for (index in 0 until FEEDS) {
+            if (empty[index]) continue
+            val feed = feeds[index] ?: continue
+            val slot = DungeonUtils.leapTeammates.getOrNull(index) ?: continue
+            val target = resolve(slot.entity, slot.name) ?: continue
+            val result = PovPose.of(target, PovPreviews.mode, partialTicks, player.position(), PovPreviews.maxDistance.toDouble())
+            val pose = when (result) {
+                is PovPose.Result.Rejected -> continue
+                is PovPose.Result.Ok -> result.pose
+            }
+            if (!PovPose.fitsWorld(pose, level)) continue
+
+            val marker = Marker(EntityTypes.MARKER, level)
+            marker.setPos(pose.x, pose.y, pose.z)
+            marker.xo = pose.x
+            marker.yo = pose.y
+            marker.zo = pose.z
+            marker.setYRot(pose.yaw)
+            marker.yRotO = pose.yaw
+            marker.setXRot(pose.pitch)
+            marker.xRotO = pose.pitch
+
+            val cam = Camera()
+            val access = cam as CameraAccessor
+            access.cpSetFovModifier(1f)
+            access.cpSetOldFovModifier(1f)
+            access.cpSetEyeHeight(pose.eyeHeight)
+            access.cpSetEyeHeightOld(pose.eyeHeight)
+            cam.setLevel(level)
+            cam.setEntity(marker)
+            cam.update(deltaTracker)
+
+            val rig = Rig(cam, access, marker)
+            quadrants.add(MultiViewRenderer.QuadrantConfig(
+                index = index,
+                camera = cam,
+                marker = marker,
+                pose = pose,
+                feed = feed,
+                rig = rig,
+                partialTicks = partialTicks,
+            ))
+        }
+
+        if (quadrants.isEmpty()) return false
+
+        val result = MultiViewRenderer().renderAll(
+            mc = mc,
+            gameRenderer = gameRenderer,
+            fogRenderer = invoker.cpFogRenderer(),
+            state = gameRenderer.gameRenderState(),
+            level = level,
+            player = player,
+            deltaTracker = deltaTracker,
+            quadrants = quadrants,
+            partialTicks = deltaTracker.getGameTimeDeltaPartialTick(true),
+            original = original,
+            self = self,
+        )
+
+        return result
+    }
+
     private fun runFrame(deltaTracker: DeltaTracker): Boolean {
         val mc = Minecraft.getInstance()
         val level = mc.level ?: return false
@@ -245,7 +330,7 @@ object PovCapture {
         println("[CheaterPov] team=${teammates.size} $slots")
     }
 
-    private class Rig(val camera: Camera, val access: CameraAccessor, val marker: Marker)
+    class Rig(val camera: Camera, val access: CameraAccessor, val marker: Marker)
 
     private fun rig(level: ClientLevel): Rig {
         var cam = camera
