@@ -61,6 +61,11 @@ object PovPreviews : Module(
         desc = "Turn the previews off for the session if rendering one throws, instead of retrying every frame."
     )
 
+    val multiViewEnabled by BooleanSetting(
+        "Multi-view (Vulkan 4/frame)", false,
+        desc = "EXPERIMENTAL: Render all 4 previews in single FrameGraph pass. Requires Vulkan. May cause instability."
+    )
+
     val mode: PovPose.Mode
         get() = if (headSmoothing == HeadSmoothing.RAW) PovPose.Mode.RAW else PovPose.Mode.VANILLA
 
