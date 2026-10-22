@@ -1,0 +1,127 @@
+name: Build and Notify
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Microsoft JDK 25
+        uses: actions/setup-java@v6
+        with:
+          distribution: microsoft
+          java-version: "25"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-provider: basic
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
+      - name: Build and name the addon JAR
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew assemble --no-daemon
+
+          VERSION="$(sed -n 's/^mod_version=//p' gradle.properties)"
+          if [[ -z "$VERSION" ]]; then
+            echo "mod_version was not found in gradle.properties" >&2
+            exit 1
+          fi
+
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "${GITHUB_REF_NAME#v}" != "$VERSION" ]]; then
+            echo "Tag $GITHUB_REF_NAME must match version v$VERSION" >&2
+            exit 1
+          fi
+
+          SOURCE_JAR="$(find build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*-sources.jar' -print -quit)"
+          if [[ -z "$SOURCE_JAR" ]]; then
+            echo "No addon JAR was produced in build/libs" >&2
+            exit 1
+          fi
+
+          RELEASE_JAR="build/libs/POV-Preview-${VERSION}.jar"
+          cp "$SOURCE_JAR" "$RELEASE_JAR"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-artifacts
+          path: build/libs/POV-Preview-${{ steps.package.outputs.version }}.jar
+          if-no-files-found: error
+
+      - name: Zip and upload to builds.aerii.xyz
+        env:
+          UPLOAD_KEY: ${{ secrets.UPLOAD_KEY }}
+          VERSION: ${{ steps.package.outputs.version }}
+          COMMIT: ${{ github.sha }}
+          BRANCH: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$UPLOAD_KEY" ]]; then
+            echo "UPLOAD_KEY is not configured; skipping external build upload."
+            exit 0
+          fi
+
+          JAR="build/libs/POV-Preview-${VERSION}.jar"
+          zip -j -q build-output.zip "$JAR"
+          curl --fail --silent --show-error -X POST https://builds.aerii.xyz/upload \
+            -H "Authorization: $UPLOAD_KEY" \
+            -F "file=@build-output.zip" \
+            -F "commit=$COMMIT" \
+            -F "branch=$BRANCH"
+
+      - name: Notify build
+        env:
+          NOTIFY_TOKEN: ${{ secrets.NOTIFY_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          RUN_ID: ${{ github.run_id }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$NOTIFY_TOKEN" ]]; then
+            echo "NOTIFY_TOKEN is not configured; skipping build notification."
+            exit 0
+          fi
+
+          jq -n \
+            --arg repo "$REPOSITORY" \
+            --arg branch "$BRANCH" \
+            --arg run_id "$RUN_ID" \
+            --arg before "$BEFORE" \
+            --arg after "$AFTER" \
+            '{repo: $repo, branch: $branch, run_id: $run_id, before: $before, after: $after}' \
+          | curl --fail --silent --show-error -X POST "https://builds.aerii.xyz/notify?type=build" \
+              -H "Content-Type: application/json" \
+              -H "Authorization: $NOTIFY_TOKEN" \
+              -d @-
+
+      - name: Publish GitHub Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v3
+        with:
+          name: POV Preview ${{ steps.package.outputs.version }}
+          generate_release_notes: true
+          files: build/libs/POV-Preview-${{ steps.package.outputs.version }}.jar

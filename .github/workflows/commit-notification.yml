@@ -1,0 +1,33 @@
+name: Commit Notification
+
+on:
+  push:
+    branches: ["**"]
+
+permissions: {}
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify
+        env:
+          NOTIFY_TOKEN: ${{ secrets.NOTIFY_TOKEN }}
+          COMMITS: ${{ toJson(github.event.commits) }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$NOTIFY_TOKEN" ]]; then
+            echo "NOTIFY_TOKEN is not configured; skipping commit notification."
+            exit 0
+          fi
+
+          jq -n \
+            --arg repo "$REPOSITORY" \
+            --argjson commits "$COMMITS" \
+            '{repo: $repo, commits: $commits}' \
+          | curl --fail --silent --show-error -X POST "https://builds.aerii.xyz/notify?type=commit" \
+              -H "Content-Type: application/json" \
+              -H "Authorization: $NOTIFY_TOKEN" \
+              -d @-

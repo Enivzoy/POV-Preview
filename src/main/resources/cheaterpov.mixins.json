@@ -1,0 +1,19 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "me.enivzoy.cheaterpov.mixin",
+  "compatibilityLevel": "JAVA_25",
+  "client": [
+    "CameraAccessor",
+    "GameRendererInvoker",
+    "GameRendererMixin",
+    "GuiGraphicsExtractorAccessor",
+    "LevelExtractorMixin",
+    "LevelRendererMixin",
+    "LivingEntityAccessor",
+    "SectionUpdateTrackerMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

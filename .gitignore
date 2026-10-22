@@ -1,0 +1,17 @@
+# Gradle build output and local caches
+.gradle/
+.kotlin/
+build/
+work/
+
+# Minecraft development runtime (logs, configs, and local test data)
+run/
+
+# IDE-local files
+.idea/
+*.iml
+out/
+
+# Operating system files
+.DS_Store
+Thumbs.db
