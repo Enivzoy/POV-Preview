@@ -8,7 +8,7 @@ Renders each teammate's first-person view into their quarter of Odin's Leap menu
 Render each teammate's view into the four quadrants of the Odin leap menu.
 Everything is done client-side hence no real and this provides no less information then a discord screenshare.
 ## Requirements
-
+- Not a requirement but any motion blur mod is reccomended since it will hide the imperfections i reccomend [athen](https://github.com/skies-starred/Athen).
 - Minecraft 26.2
 - Fabric Loader 0.19.3+
 - Fabric API
