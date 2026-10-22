@@ -12,10 +12,9 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 @Mixin(GameRenderer.class)
 public class GameRendererMixin {
 
-    @Inject(method = "renderLevel(Lnet/minecraft/client/DeltaTracker;)V", at = @At("HEAD"), cancellable = true)
-    private void cpTakeOverLevelRender(DeltaTracker deltaTracker, CallbackInfo ci) {
-        if (PovCapture.INSTANCE.getCapturing()) return;
-        if (PovCapture.INSTANCE.takeOver(deltaTracker)) ci.cancel();
+    @Inject(method = "renderLevel(Lnet/minecraft/client/DeltaTracker;)V", at = @At("RETURN"))
+    private void cpAfterLevelRender(DeltaTracker deltaTracker, CallbackInfo ci) {
+        PovCapture.INSTANCE.afterLevelRender(deltaTracker);
     }
 
     @Inject(method = "shouldRenderBlockOutline", at = @At("HEAD"), cancellable = true)

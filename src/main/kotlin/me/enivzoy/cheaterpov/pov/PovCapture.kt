@@ -175,11 +175,11 @@ object PovCapture {
         }
     }
 
-    fun takeOver(deltaTracker: DeltaTracker): Boolean {
-        if (capturing || disabledForSession) return false
-        if (blitsSubmitted == 0 || !PovPreviews.wants()) return false
+    fun afterLevelRender(deltaTracker: DeltaTracker) {
+        if (capturing || disabledForSession) return
+        if (blitsSubmitted == 0) return
         blitsSubmitted = 0
-        return runFrame(deltaTracker)
+        runFrame(deltaTracker)
     }
 
     private fun runFrame(deltaTracker: DeltaTracker): Boolean {
@@ -203,7 +203,8 @@ object PovCapture {
             gui.isHudHidden = true
 
             val cameraRig = rig(level)
-            val perFrame = if (warmup > 0) FEEDS else PovPreviews.previewsPerFrame.coerceIn(1, FEEDS)
+            val isVulkan = RenderSystem.getBackendDescription().contains("Vulkan", ignoreCase = true)
+            val perFrame = if (warmup > 0) FEEDS else if (isVulkan) 1 else PovPreviews.previewsPerFrame.coerceIn(1, FEEDS)
             var rendered = 0
             var attempts = 0
             while (rendered < perFrame && attempts < FEEDS) {
