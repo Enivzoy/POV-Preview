@@ -16,6 +16,7 @@
     ]
   },
   "mixins": ["cheaterpov.mixins.json"],
+  "accessWidener": "cheaterpov.classtweaker",
   "depends": {
     "fabricloader": ">=${loader_version}",
     "fabric-api": ">=${fabric_api_version}",

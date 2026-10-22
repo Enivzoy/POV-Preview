@@ -11,6 +11,7 @@
     "LevelExtractorMixin",
     "LevelRendererMixin",
     "LivingEntityAccessor",
+    "Matrix4fStackAccessor",
     "SectionUpdateTrackerMixin"
   ],
   "injectors": {

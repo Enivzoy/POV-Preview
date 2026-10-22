@@ -1,0 +1,5 @@
+classTweaker v1 official
+
+accessible field net/minecraft/client/renderer/feature/FeatureRenderDispatcher preparedFrame Lnet/minecraft/client/renderer/feature/FeatureRenderDispatcher$PreparedFrame;
+accessible field net/minecraft/client/renderer/feature/FeatureRenderDispatcher$PreparedFrame context Lnet/minecraft/client/renderer/feature/FeatureFrameContext;
+accessible field net/minecraft/client/renderer/feature/FeatureRenderDispatcher$PreparedFrame submitNodeStorage Lnet/minecraft/client/renderer/SubmitNodeStorage;

@@ -10,6 +10,7 @@ import com.odtheking.odin.utils.skyblock.dungeon.DungeonUtils
 import me.enivzoy.cheaterpov.mixin.CameraAccessor
 import me.enivzoy.cheaterpov.mixin.GameRendererInvoker
 import me.enivzoy.cheaterpov.mixin.GuiGraphicsExtractorAccessor
+import me.enivzoy.cheaterpov.mixin.Matrix4fStackAccessor
 import net.minecraft.client.Camera
 import net.minecraft.client.CameraType
 import net.minecraft.client.CloudStatus
@@ -506,20 +507,20 @@ object PovCapture {
     }
 
     private fun modelViewDepth(): Int = try {
-        CURR_FIELD?.getInt(RenderSystem.getModelViewStack()) ?: -1
+        (RenderSystem.getModelViewStack() as Matrix4fStackAccessor).cpCurr()
     } catch (_: Throwable) {
         -1
     }
 
     private fun releasePreparedFrame() {
         val dispatcher = Minecraft.getInstance().gameRenderer.featureRenderDispatcher()
-        val frame = FRAME_FIELD.get(dispatcher) as? AutoCloseable ?: return
-        if (CONTEXT_FIELD.get(frame) == null) return
+        val frame = dispatcher.preparedFrame ?: return
+        if (frame.context == null) return
         try {
             frame.close()
         } catch (_: Throwable) {
-            CONTEXT_FIELD.set(frame, null)
-            STORAGE_FIELD.set(frame, null)
+            frame.context = null
+            frame.submitNodeStorage = null
         }
     }
 
@@ -530,28 +531,5 @@ object PovCapture {
         }
         println("[CheaterPov] POV previews hit an error${if (PovPreviews.disableOnError) " and are off for this session" else ""}: $t")
         t.printStackTrace()
-    }
-
-    private val CURR_FIELD: java.lang.reflect.Field? by lazy {
-        try {
-            org.joml.Matrix4fStack::class.java.getDeclaredField("curr").apply { isAccessible = true }
-        } catch (_: Throwable) {
-            null
-        }
-    }
-
-    private val FRAME_FIELD: java.lang.reflect.Field by lazy {
-        net.minecraft.client.renderer.feature.FeatureRenderDispatcher::class.java
-            .getDeclaredField("preparedFrame").apply { isAccessible = true }
-    }
-
-    private val CONTEXT_FIELD: java.lang.reflect.Field by lazy {
-        net.minecraft.client.renderer.feature.FeatureRenderDispatcher.PreparedFrame::class.java
-            .getDeclaredField("context").apply { isAccessible = true }
-    }
-
-    private val STORAGE_FIELD: java.lang.reflect.Field by lazy {
-        net.minecraft.client.renderer.feature.FeatureRenderDispatcher.PreparedFrame::class.java
-            .getDeclaredField("submitNodeStorage").apply { isAccessible = true }
     }
 }

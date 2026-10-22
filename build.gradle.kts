@@ -23,6 +23,8 @@ dependencies {
 }
 
 loom {
+    accessWidenerPath = file("src/main/resources/cheaterpov.classtweaker")
+
     runConfigs.named("client") {
         isIdeConfigGenerated = true
         vmArgs.addAll(
