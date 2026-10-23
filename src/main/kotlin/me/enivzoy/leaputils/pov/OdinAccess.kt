@@ -33,7 +33,7 @@ object OdinAccess {
     
     private val leapToMethod = findMethod(leapMenuClass, "leapTo", String::class.java, AbstractContainerScreen::class.java)
     
-    private val floorNameMethod = findMethod(floorClass, "name")
+    private val floorNameMethod = findMethod(java.lang.Enum::class.java, "name")
     private val roomDataMethod = findMethod(roomClass, "data")
     private val roomDataTypeMethod = findMethod(roomDataClass, "type")
     private val dungeonStatsDoorOpenerMethod = findMethod(dungeonStatsClass, "getDoorOpener")
