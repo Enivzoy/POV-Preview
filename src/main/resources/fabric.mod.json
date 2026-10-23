@@ -11,12 +11,12 @@
     "client": [
       {
         "adapter": "kotlin",
-        "value": "me.enivzoy.cheaterpov.CheaterPovAddon"
+        "value": "me.enivzoy.leaputils.LeapUtilsAddon"
       }
     ]
   },
-  "mixins": ["cheaterpov.mixins.json"],
-  "accessWidener": "cheaterpov.classtweaker",
+  "mixins": ["leaputils.mixins.json"],
+  "accessWidener": "leaputils.classtweaker",
   "depends": {
     "fabricloader": ">=${loader_version}",
     "fabric-api": ">=${fabric_api_version}",

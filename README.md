@@ -1,12 +1,13 @@
-# POV Preview for Odin[Addon]
+# Leap Utils for Odin
 
-Renders each teammate's first-person view into their quarter of Odin's Leap menu.
+Utilities for Odin's Spirit Leap menu - renders each teammate's first-person view into their quarter of the Leap menu.
 
 ![nothing to see here](https://img.shields.io/badge/Minecraft-26.2-blue) ![Odin](https://img.shields.io/badge/Odin-0.3.6-9cf)
 
 ## What it does
-Render each teammate's view into the four quadrants of the Odin leap menu.
+Render each teammate's view into the four quadrants of the Odin Spirit Leap menu.
 Everything is done client-side hence no real and this provides no less information then a discord screenshare.
+
 ## Requirements
 - Not a requirement but any motion blur mod is reccomended since it will hide the imperfections i reccomend [athen](https://github.com/skies-starred/Athen).
 - Minecraft 26.2

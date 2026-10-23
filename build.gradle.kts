@@ -20,11 +20,10 @@ dependencies {
     implementation("net.fabricmc:fabric-language-kotlin:${property("fabric_kotlin_version")}")
     implementation("net.fabricmc.fabric-api:fabric-api:${property("fabric_api_version")}")
     implementation("maven.modrinth:odin:${property("odin_modrinth_version")}")
-    compileOnly("io.github.llamalad7:mixinextras-fabric:0.5.4")
 }
 
 loom {
-    accessWidenerPath = file("src/main/resources/cheaterpov.classtweaker")
+    accessWidenerPath = file("src/main/resources/leaputils.classtweaker")
 
     runConfigs.named("client") {
         isIdeConfigGenerated = true
