@@ -73,7 +73,7 @@ object PovPreviews : Module(
         y = 415,
         scale = 1f
     ) { example ->
-        val line = if (example) "§7POV §f1.8§7ms  §f4§7/4" else PovCapture.costLine() ?: return@HUD 0 to 0
+        val line = if (example) "\u00a77POV \u00a7f1.8\u00a77ms  \u00a7f4\u00a77/4" else PovFeedRig.costReadout() ?: return@HUD 0 to 0
         val width = textDim(line, 0, 0, Colors.WHITE).first
         text(line, 0, 0, Colors.WHITE)
         width to 9
@@ -81,25 +81,25 @@ object PovPreviews : Module(
 
     init {
         on<ScreenEvent.Render>(EventPriority.HIGHEST + 100) {
-            PovCapture.onScreenExtract(guiGraphics)
+            PovFeedRig.drawFeeds(guiGraphics)
         }
 
         ClientTickEvents.END_CLIENT_TICK.register {
-            PovCapture.releaseIfUnwanted()
+            PovFeedRig.dropResourcesIfIdle()
         }
 
         on<LevelEvent.Load> {
-            PovCapture.onWorldChange()
+            PovFeedRig.resetOnLevelSwitch()
         }
     }
 
     override fun onDisable() {
-        PovCapture.requestFree()
+        PovFeedRig.clearAll()
         super.onDisable()
     }
 
     fun wants(): Boolean {
-        if (!enabled || PovCapture.disabledForSession) return false
+        if (!enabled || PovFeedRig.haltedThisSession) return false
         if (!LeapMenu.enabled) return false
         val screen = Minecraft.getInstance().gui.screen() as? AbstractContainerScreen<*> ?: return false
         return screen.title.string.equalsOneOf("Spirit Leap", "Teleport to Player")
