@@ -3,6 +3,7 @@ package me.enivzoy.leaputils.pov
 import com.odtheking.odin.clickgui.settings.impl.BooleanSetting
 import com.odtheking.odin.clickgui.settings.impl.NumberSetting
 import com.odtheking.odin.clickgui.settings.impl.SelectorSetting
+import com.odtheking.odin.clickgui.settings.impl.StringSetting
 import com.odtheking.odin.events.LevelEvent
 import com.odtheking.odin.events.ScreenEvent
 import com.odtheking.odin.events.core.EventPriority
@@ -10,9 +11,9 @@ import com.odtheking.odin.events.core.on
 import com.odtheking.odin.features.Category
 import com.odtheking.odin.features.Module
 import com.odtheking.odin.features.impl.dungeon.LeapMenu
-import com.odtheking.odin.utils.equalsOneOf
 import com.odtheking.odin.utils.skyblock.dungeon.DungeonClass
 import com.odtheking.odin.utils.skyblock.dungeon.DungeonPlayer
+import com.odtheking.odin.utils.skyblock.dungeon.DungeonUtils
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents
 import net.minecraft.client.Minecraft
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen
@@ -45,10 +46,21 @@ object Savepoint : Module(
     val goldorWaypoint by SelectorSetting("Goldor Waypoint", DungeonClass.MAGE, desc = "Who to leap to during Goldor")
     val goldorClass by SelectorSetting("Goldor Leap If Class", DungeonClass.HEALER, desc = "Class that leaps during Goldor")
     val goldorMageCoords by BooleanSetting("Mage Early Enter Coords", false, desc = "Use predetermined coords for mage early enter")
-    val goldorMageX by NumberSetting("Mage X", 0, -1000..1000, 1, desc = "Mage early enter X coordinate")
-    val goldorMageY by NumberSetting("Mage Y", 0, -100..256, 1, desc = "Mage early enter Y coordinate")
-    val goldorMageZ by NumberSetting("Mage Z", 0, -1000..1000, 1, desc = "Mage early enter Z coordinate")
+    val goldorMageCoordsText by StringSetting(
+        "Mage Coords",
+        "0, 0, 0",
+        40,
+        desc = "Mage early enter coordinates as x, y, z",
+        placeholder = "x, y, z",
+    )
     val goldorLeniency by NumberSetting("Leniency (blocks)", 2, 0..10, 1, desc = "Coordinate leniency in blocks")
+
+    // Terminals / Core settings (F7/M7)
+    val terminalsEnabled by BooleanSetting("Terminals/Core", true, desc = "Auto-leap to person standing at core")
+    val coreSpotter by SelectorSetting("Core Spotter", DungeonClass.MAGE, desc = "Class that stands in front of core")
+    val coreCoordsText by StringSetting("Core Coords", "53, 115, 50", 30, desc = "Core spot coords x, y, z", placeholder = "x, y, z")
+    val coreLeniency by NumberSetting("Core Leniency", 3, 1..6, 1, desc = "Leniency for core spot")
+    val allowArcherCore by BooleanSetting("Allow Archer As Spotter", true, desc = "Allow Archer to also stand at core spot")
 
     // Necron settings
     val necronEnabled by BooleanSetting("Necron", true, desc = "Enable Necron auto-leap")
@@ -57,6 +69,7 @@ object Savepoint : Module(
 
     private var lastLeapTime = 0L
     private var hasLeapedThisPhase = false
+    private var hasLeapedCore = false
 
     override fun onDisable() {
         lastLeapTime = 0
@@ -71,7 +84,13 @@ object Savepoint : Module(
         } else null
     }
 
+    private fun isF7(): Boolean {
+        val floorName = OdinAccess.floorName
+        return floorName == "F7" || floorName == "M7"
+    }
+
     private fun getCurrentBoss(): String? {
+        if (!OdinAccess.inBoss) return null
         val roomName = OdinAccess.currentRoom?.let { 
             val data = OdinAccess.currentRoomData
             data?.let { OdinAccess.getRoomName(it) } 
@@ -84,6 +103,12 @@ object Savepoint : Module(
                 name.contains("Necron", ignoreCase = true) -> "Necron"
                 else -> null
             }
+        } ?: run {
+            // Fallback for F7 boss phases
+            if (isF7()) {
+                // Could be terminals/devs - not a leap phase
+                null
+            } else null
         }
     }
 
@@ -109,7 +134,6 @@ object Savepoint : Module(
     private fun handleMaxor(currentClass: DungeonClass) {
         if (!maxorEnabled) return
         
-        // Right crystal: if current class matches maxorRightClass, leap to maxorRightWaypoint
         if (currentClass == maxorRightClass) {
             val target = findTeammateByClass(maxorRightWaypoint) 
                 ?: return
@@ -118,7 +142,6 @@ object Savepoint : Module(
             return
         }
         
-        // Left crystal: if current class matches maxorLeftClass, leap to maxorLeftWaypoint
         if (currentClass == maxorLeftClass) {
             val target = findTeammateByClass(maxorLeftWaypoint) 
                 ?: return
@@ -138,12 +161,21 @@ object Savepoint : Module(
         }
     }
 
+    private fun parseCoords(input: String): Triple<Int, Int, Int>? {
+        val parts = input.split(",", " ").map { it.trim() }.filter { it.isNotEmpty() }
+        if (parts.size < 3) return null
+        val x = parts[0].toIntOrNull() ?: return null
+        val y = parts[1].toIntOrNull() ?: return null
+        val z = parts[2].toIntOrNull() ?: return null
+        return Triple(x, y, z)
+    }
+
     private fun handleGoldor(currentClass: DungeonClass) {
         if (!goldorEnabled) return
         
-        // Check for mage early enter coords
         if (goldorMageCoords && currentClass == DungeonClass.MAGE) {
-            if (OdinAccess.isAtCoords(goldorMageX, goldorMageY, goldorMageZ, goldorLeniency)) {
+            val coords = parseCoords(goldorMageCoordsText)
+            if (coords != null && OdinAccess.isAtCoords(coords.first, coords.second, coords.third, goldorLeniency)) {
                 val target = findTeammateByClass(goldorWaypoint) 
                     ?: return
                 println("[LeapUtils Savepoint] Goldor: Mage at early enter coords, leaping to ${target.name}")
@@ -171,6 +203,57 @@ object Savepoint : Module(
         }
     }
 
+    private fun inTerminalsSection(): Boolean {
+        if (!isF7()) return false
+        return runCatching {
+            val inBoss = OdinAccess.inBoss
+            val boss = getCurrentBoss()
+            inBoss && boss == null
+        }.getOrDefault(false)
+    }
+
+    private fun isAtCore(spotter: DungeonPlayer, coords: Triple<Int, Int, Int>): Boolean {
+        val entity = spotter.entity
+        if (entity != null) {
+            return abs(entity.x - coords.first) <= coreLeniency && 
+                   abs(entity.y - coords.second) <= coreLeniency && 
+                   abs(entity.z - coords.third) <= coreLeniency
+        }
+        return false
+    }
+
+    private fun handleTerminalsCore(currentClass: DungeonClass) {
+        if (!terminalsEnabled) return
+        if (hasLeapedCore) return
+        
+        val myClass = getCurrentClass() ?: currentClass
+        val spotterClass = coreSpotter
+        if (myClass == spotterClass) return
+        if (allowArcherCore && myClass == DungeonClass.ARCHER && spotterClass == DungeonClass.MAGE) {
+            // archer might be spotter in some parties, but if I'm archer don't leap to myself
+        }
+        if (myClass == DungeonClass.ARCHER && allowArcherCore && spotterClass == DungeonClass.ARCHER) return
+        
+        val coords = parseCoords(coreCoordsText) ?: return
+        val mc = Minecraft.getInstance()
+        val screen = mc.gui.screen() as? AbstractContainerScreen<*> ?: return
+        
+        val spotter = findTeammateByClass(spotterClass) ?: run {
+            if (allowArcherCore && spotterClass != DungeonClass.ARCHER) {
+                findTeammateByClass(DungeonClass.ARCHER)
+            } else null
+        } ?: return
+        
+        if (spotter.isDead) return
+        if (spotter.clazz == myClass) return
+        if (spotter.clazz != spotterClass && !(allowArcherCore && spotter.clazz == DungeonClass.ARCHER)) return
+        if (!isAtCore(spotter, coords)) return
+        
+        println("[LeapUtils Savepoint] Core: ${myClass} leaping to ${spotter.name} (${spotter.clazz}) at core")
+        OdinAccess.autoLeapTo(spotter, screen)
+        hasLeapedCore = true
+    }
+
     init {
         on<ScreenEvent.Render>(EventPriority.HIGHEST + 100) {
             if (!enabled || !savepointEnabled) return@on
@@ -181,32 +264,41 @@ object Savepoint : Module(
             if (!screen.title.string.equals("Spirit Leap") && !screen.title.string.equals("Teleport to Player")) return@on
             
             val currentClass = getCurrentClass() ?: return@on
-            val boss = getCurrentBoss() ?: return@on
+            val boss = getCurrentBoss()
             
             val now = System.currentTimeMillis()
             if (now - lastLeapTime < delay) return@on
-            if (hasLeapedThisPhase) return@on
+            if (hasLeapedThisPhase && boss != null) return@on
             
-            when (boss) {
-                "Maxor" -> handleMaxor(currentClass)
-                "Storm" -> handleStorm(currentClass)
-                "Goldor" -> handleGoldor(currentClass)
-                "Necron" -> handleNecron(currentClass)
+            if (boss != null) {
+                when (boss) {
+                    "Maxor" -> handleMaxor(currentClass)
+                    "Storm" -> handleStorm(currentClass)
+                    "Goldor" -> handleGoldor(currentClass)
+                    "Necron" -> handleNecron(currentClass)
+                }
+                lastLeapTime = now
+                hasLeapedThisPhase = true
+            } else if (isF7() && OdinAccess.inBoss && !hasLeapedCore) {
+                handleTerminalsCore(currentClass)
+                if (hasLeapedCore) {
+                    lastLeapTime = now
+                }
             }
-            
-            lastLeapTime = now
-            hasLeapedThisPhase = true
         }
 
         ClientTickEvents.END_CLIENT_TICK.register {
+            if (!enabled || !savepointEnabled) return@register
             if (!OdinAccess.inBoss) {
                 hasLeapedThisPhase = false
+                hasLeapedCore = false
             }
         }
 
         on<LevelEvent.Load> {
             lastLeapTime = 0
             hasLeapedThisPhase = false
+            hasLeapedCore = false
         }
     }
 }

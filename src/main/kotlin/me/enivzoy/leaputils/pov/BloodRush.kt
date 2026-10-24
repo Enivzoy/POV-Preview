@@ -8,8 +8,6 @@ import com.odtheking.odin.events.core.EventPriority
 import com.odtheking.odin.events.core.on
 import com.odtheking.odin.features.Category
 import com.odtheking.odin.features.Module
-import com.odtheking.odin.features.impl.dungeon.LeapMenu
-import com.odtheking.odin.utils.equalsOneOf
 import com.odtheking.odin.utils.skyblock.dungeon.DungeonClass
 import com.odtheking.odin.utils.skyblock.dungeon.DungeonPlayer
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents
@@ -19,20 +17,25 @@ import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen
 object BloodRush : Module(
     name = "Blood Rush",
     category = Category.custom("Leap Utils", 860, 10),
-    description = "Auto-leap to closest teammate near wither/blood door for Archer, Mage, Healer during Blood Rush",
+    description = "Auto-leaps to the teammate closest to the wither/blood door while the blood key is still unpicked",
 ) {
 
     val bloodRushEnabled by BooleanSetting("Enabled", true, desc = "Enable Blood Rush auto-leap")
-    val delay by NumberSetting("Delay (ms)", 300, 100..600, 10, desc = "Delay before auto-leaping")
-    val onlyWhenLeapMenuOpen by BooleanSetting("Only When Leap Menu Open", true, desc = "Only work when leap menu is open")
+    val delay by NumberSetting("Delay (ms)", 300, 0..2000, 50, desc = "Delay after the leap menu opens before leaping")
 
-    private var lastLeapTime = 0L
-    private var hasLeapedThisRush = false
+    private var menuOpenedAt = 0L
+    private var inLeapMenu = false
+    private var leapedThisMenu = false
 
     override fun onDisable() {
-        lastLeapTime = 0
-        hasLeapedThisRush = false
+        resetMenuState()
         super.onDisable()
+    }
+
+    private fun resetMenuState() {
+        menuOpenedAt = 0
+        inLeapMenu = false
+        leapedThisMenu = false
     }
 
     private fun getCurrentClass(): DungeonClass? {
@@ -47,60 +50,80 @@ object BloodRush : Module(
     }
 
     private fun isBloodRushActive(): Boolean {
-        return OdinAccess.inBoss && 
-               OdinAccess.floorName?.startsWith("M") == true && 
-               OdinAccess.currentRoomType == com.odtheking.odin.features.impl.dungeon.map.tile.RoomType.BLOOD
+        if (OdinAccess.inBoss) return false
+        if (OdinAccess.bloodDoorOpened) return false
+        if (OdinAccess.bloodKeyPickedUp) return false
+        if (OdinAccess.hasBloodKeyBeenPickedUp) return false
+        return true
     }
 
-    private fun hasBloodKeyBeenPickedUp(): Boolean {
-        val doorOpener = OdinAccess.dungeonStatsDoorOpener
-        return doorOpener?.isNotBlank() == true
+    private fun isLeapMenu(screen: AbstractContainerScreen<*>): Boolean {
+        val title = screen.title.string
+        return title == "Spirit Leap" || title == "Teleport to Player"
     }
 
-    private fun autoLeapTo(teammate: DungeonPlayer) {
-        val mc = Minecraft.getInstance()
-        val screen = mc.gui.screen() as? AbstractContainerScreen<*> ?: return
+    private fun autoLeapTo(teammate: DungeonPlayer, screen: AbstractContainerScreen<*>) {
         OdinAccess.autoLeapTo(teammate, screen)
         println("[LeapUtils BloodRush] Auto-leaped to ${teammate.name} (${teammate.clazz}) for Blood Rush")
     }
 
     init {
         on<ScreenEvent.Render>(EventPriority.HIGHEST + 100) {
-            if (!enabled || !bloodRushEnabled) return@on
-            if (onlyWhenLeapMenuOpen && !LeapMenu.enabled) return@on
-            
-            val mc = Minecraft.getInstance()
-            val screen = mc.gui.screen() as? AbstractContainerScreen<*> ?: return@on
-            if (!screen.title.string.equals("Spirit Leap") && !screen.title.string.equals("Teleport to Player")) return@on
-            
-            val currentClass = getCurrentClass() ?: return@on
-            if (!isValidClassForBloodRush(currentClass)) return@on
-            
-            if (!isBloodRushActive()) return@on
-            if (hasBloodKeyBeenPickedUp()) {
-                hasLeapedThisRush = false
+            if (!enabled || !bloodRushEnabled) {
+                resetMenuState()
                 return@on
             }
-            
+
+            val screen = Minecraft.getInstance().gui.screen() as? AbstractContainerScreen<*> ?: run {
+                resetMenuState()
+                return@on
+            }
+            if (!isLeapMenu(screen)) {
+                resetMenuState()
+                return@on
+            }
+
             val now = System.currentTimeMillis()
-            if (now - lastLeapTime < delay) return@on
-            if (hasLeapedThisRush) return@on
-            
+            if (!inLeapMenu) {
+                inLeapMenu = true
+                menuOpenedAt = now
+                leapedThisMenu = false
+            }
+            if (leapedThisMenu) return@on
+
+            val currentClass = getCurrentClass() ?: return@on
+            if (!isValidClassForBloodRush(currentClass)) return@on
+            if (!isBloodRushActive()) return@on
+            if (now - menuOpenedAt < delay) return@on
+
             val target = OdinAccess.findClosestToWitherDoor() ?: return@on
-            autoLeapTo(target)
-            lastLeapTime = now
-            hasLeapedThisRush = true
+            autoLeapTo(target, screen)
+            leapedThisMenu = true
         }
 
         ClientTickEvents.END_CLIENT_TICK.register {
-            if (!OdinAccess.inBoss) {
-                hasLeapedThisRush = false
+            if (!enabled || !bloodRushEnabled) {
+                resetMenuState()
+                return@register
+            }
+            if (OdinAccess.bloodDoorOpened || OdinAccess.bloodKeyPickedUp || OdinAccess.hasBloodKeyBeenPickedUp) {
+                resetMenuState()
+                return@register
+            }
+            if (OdinAccess.inBoss) {
+                resetMenuState()
+                return@register
+            }
+            val screen = Minecraft.getInstance().gui.screen() as? AbstractContainerScreen<*>
+            if (screen == null || !isLeapMenu(screen)) {
+                inLeapMenu = false
+                menuOpenedAt = 0
+                leapedThisMenu = false
             }
         }
 
         on<LevelEvent.Load> {
-            lastLeapTime = 0
-            hasLeapedThisRush = false
+            resetMenuState()
         }
     }
 }
