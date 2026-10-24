@@ -10,6 +10,7 @@ import com.odtheking.odin.features.Category
 import com.odtheking.odin.features.Module
 import com.odtheking.odin.utils.skyblock.dungeon.DungeonClass
 import com.odtheking.odin.utils.skyblock.dungeon.DungeonPlayer
+import com.odtheking.odin.utils.skyblock.dungeon.DungeonUtils
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents
 import net.minecraft.client.Minecraft
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen
@@ -52,6 +53,19 @@ object BloodRush : Module(
     private fun isBloodRushActive(): Boolean {
         if (OdinAccess.inBoss) return false
         if (OdinAccess.bloodDoorOpened) return false
+        if (OdinAccess.bloodKeyPickedUp) return false
+        try {
+            val m = DungeonUtils::class.java.getDeclaredMethod("getBloodDone")
+            m.isAccessible = true
+            val inst = DungeonUtils::class.java.getDeclaredField("INSTANCE").apply { isAccessible = true }.get(null)
+            if ((m.invoke(inst) as? Boolean) == true) return false
+        } catch (e: Exception) {
+        }
+        try {
+            val roomType = OdinAccess.currentRoomType
+            if (roomType != null && roomType.toString().contains("BLOOD", ignoreCase = true)) return false
+        } catch (e: Exception) {
+        }
         return true
     }
 
@@ -91,6 +105,28 @@ object BloodRush : Module(
 
             val currentClass = getCurrentClass() ?: return@on
             if (!isValidClassForBloodRush(currentClass)) return@on
+            if (OdinAccess.bloodDoorOpened) {
+                resetMenuState()
+                return@on
+            }
+            try {
+                val m = DungeonUtils::class.java.getDeclaredMethod("getBloodDone")
+                m.isAccessible = true
+                val inst = DungeonUtils::class.java.getDeclaredField("INSTANCE").apply { isAccessible = true }.get(null)
+                if ((m.invoke(inst) as? Boolean) == true) {
+                    resetMenuState()
+                    return@on
+                }
+            } catch (e: Exception) {
+            }
+            try {
+                val roomType = OdinAccess.currentRoomType
+                if (roomType != null && roomType.toString().contains("BLOOD", ignoreCase = true)) {
+                    resetMenuState()
+                    return@on
+                }
+            } catch (e: Exception) {
+            }
             if (!isBloodRushActive()) return@on
             if (now - menuOpenedAt < delay) return@on
 
@@ -107,6 +143,24 @@ object BloodRush : Module(
             if (OdinAccess.bloodDoorOpened) {
                 resetMenuState()
                 return@register
+            }
+            try {
+                val m = DungeonUtils::class.java.getDeclaredMethod("getBloodDone")
+                m.isAccessible = true
+                val inst = DungeonUtils::class.java.getDeclaredField("INSTANCE").apply { isAccessible = true }.get(null)
+                if ((m.invoke(inst) as? Boolean) == true) {
+                    resetMenuState()
+                    return@register
+                }
+            } catch (e: Exception) {
+            }
+            try {
+                val roomType = OdinAccess.currentRoomType
+                if (roomType != null && roomType.toString().contains("BLOOD", ignoreCase = true)) {
+                    resetMenuState()
+                    return@register
+                }
+            } catch (e: Exception) {
             }
             if (OdinAccess.inBoss) {
                 resetMenuState()

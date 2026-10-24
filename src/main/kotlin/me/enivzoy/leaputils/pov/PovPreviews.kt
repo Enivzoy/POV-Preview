@@ -1,6 +1,5 @@
 package me.enivzoy.leaputils.pov
 
-import com.mojang.blaze3d.systems.RenderSystem
 import com.odtheking.odin.clickgui.settings.impl.BooleanSetting
 import com.odtheking.odin.clickgui.settings.impl.NumberSetting
 import com.odtheking.odin.clickgui.settings.impl.SelectorSetting
@@ -12,7 +11,6 @@ import com.odtheking.odin.features.Category
 import com.odtheking.odin.features.Module
 import com.odtheking.odin.features.impl.dungeon.LeapMenu
 import com.odtheking.odin.utils.Colors
-import com.odtheking.odin.utils.equalsOneOf
 import com.odtheking.odin.utils.render.text
 import com.odtheking.odin.utils.render.textDim
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents
@@ -66,14 +64,14 @@ object PovPreviews : Module(
     val mode: PovPose.Mode
         get() = if (headSmoothing == HeadSmoothing.RAW) PovPose.Mode.RAW else PovPose.Mode.VANILLA
 
-    private val costHud by HUD(
+    private     val costHud by HUD(
         "POV Cost",
         desc = "Milliseconds the POV previews added to the last frame, and how many feeds are live.",
         x = 491,
         y = 415,
         scale = 1f
     ) { example ->
-        val line = if (example) "\u00a77POV \u00a7f1.8\u00a77ms  \u00a7f4\u00a77/4" else PovFeedRig.costReadout() ?: return@HUD 0 to 0
+        val line = if (example) "\u00a77POV \u00a7f1.8\u00a77ms  \u00a7f4\u00a77/4" else PovCapture.costLine() ?: return@HUD 0 to 0
         val width = textDim(line, 0, 0, Colors.WHITE).first
         text(line, 0, 0, Colors.WHITE)
         width to 9
@@ -81,27 +79,29 @@ object PovPreviews : Module(
 
     init {
         on<ScreenEvent.Render>(EventPriority.HIGHEST + 100) {
-            PovFeedRig.drawFeeds(guiGraphics)
+            PovCapture.onScreenExtract(guiGraphics)
         }
 
         ClientTickEvents.END_CLIENT_TICK.register {
-            PovFeedRig.dropResourcesIfIdle()
+            PovCapture.releaseIfUnwanted()
         }
 
         on<LevelEvent.Load> {
-            PovFeedRig.resetOnLevelSwitch()
+            PovCapture.onWorldChange()
         }
     }
 
     override fun onDisable() {
-        PovFeedRig.clearAll()
+        PovCapture.requestFree()
         super.onDisable()
     }
 
     fun wants(): Boolean {
-        if (!enabled || PovFeedRig.haltedThisSession) return false
+        if (!enabled || PovCapture.disabledForSession) return false
         if (!LeapMenu.enabled) return false
-        val screen = Minecraft.getInstance().gui.screen() as? AbstractContainerScreen<*> ?: return false
-        return screen.title.string.equalsOneOf("Spirit Leap", "Teleport to Player")
+        val mc = Minecraft.getInstance()
+        val screen = mc.gui.screen() as? AbstractContainerScreen<*> ?: return false
+        val title = screen.title.string
+        return title == "Spirit Leap" || title == "Teleport to Player" || title == "Obsidian"
     }
 }

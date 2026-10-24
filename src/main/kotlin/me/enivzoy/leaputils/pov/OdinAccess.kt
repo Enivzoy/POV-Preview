@@ -29,6 +29,11 @@ object OdinAccess {
     private val getCurrentRoomMethod = findMethod(dungeonUtilsClass, "getCurrentRoom")
     private val getCurrentDungeonPlayerMethod = findMethod(dungeonUtilsClass, "getCurrentDungeonPlayer")
     private val getLeapTeammatesMethod = findMethod(dungeonUtilsClass, "getLeapTeammates")
+    private val getF7PhaseMethod = runCatching { findMethod(dungeonUtilsClass, "getF7Phase") }.getOrNull()
+    private val getBossPhaseMethod2 = runCatching { findMethod(dungeonUtilsClass, "getBossPhase") }.getOrNull()
+    
+    private val getPhaseMethod = runCatching { findMethod(dungeonUtilsClass, "getPhase") }.getOrNull()
+    private val getCurrentPhaseMethod = runCatching { findMethod(dungeonUtilsClass, "getCurrentPhase") }.getOrNull()
     
     private val leapToMethod = findMethod(leapMenuClass, "leapTo", String::class.java, AbstractContainerScreen::class.java)
     private val getDoorsMethod = findMethod(dungeonScanClass, "getDoors")
@@ -84,7 +89,59 @@ object OdinAccess {
         get() = runCatching { bloodOpenedField.getBoolean(null) }.getOrDefault(false)
 
     val hasBloodKeyBeenPickedUp: Boolean
-        get() = bloodDoorOpened
+        get() = bloodKeyPickedUp || bloodDoorOpened
+    
+    val bossPhase: String?
+        get() {
+            getF7PhaseMethod?.let { m ->
+                runCatching {
+                    val obj = m.invoke(dungeonUtilsInstance)
+                    if (obj != null) {
+                        val s = obj.toString()
+                        if (s.isNotEmpty() && s != "null" && s != "Unknown") return s
+                    }
+                }
+            }
+            getBossPhaseMethod2?.let { m ->
+                runCatching {
+                    val obj = m.invoke(dungeonUtilsInstance)
+                    if (obj != null) {
+                        val s = obj.toString()
+                        if (s.isNotEmpty() && s != "null" && s != "Unknown") return s
+                    }
+                }
+            }
+            getPhaseMethod?.let { m ->
+                runCatching {
+                    val obj = m.invoke(dungeonUtilsInstance)
+                    if (obj != null) {
+                        val s = obj.toString()
+                        if (s.isNotEmpty() && s != "null") return s
+                    }
+                }
+            }
+            getCurrentPhaseMethod?.let { m ->
+                runCatching {
+                    val obj = m.invoke(dungeonUtilsInstance)
+                    if (obj != null) {
+                        val s = obj.toString()
+                        if (s.isNotEmpty() && s != "null") return s
+                    }
+                }
+            }
+            listOf("bossPhase", "currentPhase", "phase", "dungeonPhase", "f7Phase", "m7Phase").forEach { name ->
+                runCatching {
+                    val field = dungeonUtilsClass.getDeclaredField(name)
+                    field.isAccessible = true
+                    val obj = field.get(dungeonUtilsInstance)
+                    if (obj != null) {
+                        val s = obj.toString()
+                        if (s.isNotEmpty() && s != "null" && s != "Unknown") return s
+                    }
+                }
+            }
+            return null
+        }
     
     fun autoLeapTo(teammate: DungeonPlayer, screen: AbstractContainerScreen<*>) {
         try {
