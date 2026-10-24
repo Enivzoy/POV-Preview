@@ -52,8 +52,6 @@ object BloodRush : Module(
     private fun isBloodRushActive(): Boolean {
         if (OdinAccess.inBoss) return false
         if (OdinAccess.bloodDoorOpened) return false
-        if (OdinAccess.bloodKeyPickedUp) return false
-        if (OdinAccess.hasBloodKeyBeenPickedUp) return false
         return true
     }
 
@@ -106,7 +104,7 @@ object BloodRush : Module(
                 resetMenuState()
                 return@register
             }
-            if (OdinAccess.bloodDoorOpened || OdinAccess.bloodKeyPickedUp || OdinAccess.hasBloodKeyBeenPickedUp) {
+            if (OdinAccess.bloodDoorOpened) {
                 resetMenuState()
                 return@register
             }

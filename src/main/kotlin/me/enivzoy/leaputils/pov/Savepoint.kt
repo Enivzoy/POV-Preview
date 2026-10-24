@@ -228,26 +228,38 @@ object Savepoint : Module(
         
         val myClass = getCurrentClass() ?: currentClass
         val spotterClass = coreSpotter
+        
+        // Don't leap if I'm the spotter
         if (myClass == spotterClass) return
-        if (allowArcherCore && myClass == DungeonClass.ARCHER && spotterClass == DungeonClass.MAGE) {
-            // archer might be spotter in some parties, but if I'm archer don't leap to myself
-        }
+        // Special case: if spotter is mage and archer is allowed, archer could be spotter - but better to just avoid leaping if same class
         if (myClass == DungeonClass.ARCHER && allowArcherCore && spotterClass == DungeonClass.ARCHER) return
         
         val coords = parseCoords(coreCoordsText) ?: return
         val mc = Minecraft.getInstance()
-        val screen = mc.gui.screen() as? AbstractContainerScreen<*> ?: return
+        val screen = mc.gui.screen() as? AbstractContainerScreen<*> ?: run {
+            println("[LeapUtils Savepoint] Core: no leap menu open")
+            return
+        }
         
-        val spotter = findTeammateByClass(spotterClass) ?: run {
-            if (allowArcherCore && spotterClass != DungeonClass.ARCHER) {
-                findTeammateByClass(DungeonClass.ARCHER)
-            } else null
-        } ?: return
+        // Try to find spotter
+        var spotter = findTeammateByClass(spotterClass)
+        if (spotter == null && allowArcherCore && spotterClass != DungeonClass.ARCHER) {
+            spotter = findTeammateByClass(DungeonClass.ARCHER)
+        }
+        if (spotter == null) {
+            println("[LeapUtils Savepoint] Core: no spotter found (wanted $spotterClass)")
+            return
+        }
         
         if (spotter.isDead) return
         if (spotter.clazz == myClass) return
-        if (spotter.clazz != spotterClass && !(allowArcherCore && spotter.clazz == DungeonClass.ARCHER)) return
-        if (!isAtCore(spotter, coords)) return
+        // Check if spotter class matches what we expect
+        val isValidSpotter = spotter.clazz == spotterClass || (allowArcherCore && spotter.clazz == DungeonClass.ARCHER)
+        if (!isValidSpotter) return
+        if (!isAtCore(spotter, coords)) {
+            println("[LeapUtils Savepoint] Core: spotter ${spotter.name} not at core coords")
+            return
+        }
         
         println("[LeapUtils Savepoint] Core: ${myClass} leaping to ${spotter.name} (${spotter.clazz}) at core")
         OdinAccess.autoLeapTo(spotter, screen)
@@ -268,9 +280,9 @@ object Savepoint : Module(
             
             val now = System.currentTimeMillis()
             if (now - lastLeapTime < delay) return@on
-            if (hasLeapedThisPhase && boss != null) return@on
             
             if (boss != null) {
+                if (hasLeapedThisPhase) return@on
                 when (boss) {
                     "Maxor" -> handleMaxor(currentClass)
                     "Storm" -> handleStorm(currentClass)
@@ -279,7 +291,8 @@ object Savepoint : Module(
                 }
                 lastLeapTime = now
                 hasLeapedThisPhase = true
-            } else if (isF7() && OdinAccess.inBoss && !hasLeapedCore) {
+            } else if (isF7() && OdinAccess.inBoss) {
+                if (hasLeapedCore) return@on
                 handleTerminalsCore(currentClass)
                 if (hasLeapedCore) {
                     lastLeapTime = now

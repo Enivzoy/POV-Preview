@@ -84,7 +84,7 @@ object OdinAccess {
         get() = runCatching { bloodOpenedField.getBoolean(null) }.getOrDefault(false)
 
     val hasBloodKeyBeenPickedUp: Boolean
-        get() = bloodKeyPickedUp || bloodDoorOpened
+        get() = bloodDoorOpened
     
     fun autoLeapTo(teammate: DungeonPlayer, screen: AbstractContainerScreen<*>) {
         try {
