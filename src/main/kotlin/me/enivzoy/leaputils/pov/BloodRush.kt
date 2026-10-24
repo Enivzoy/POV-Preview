@@ -3,6 +3,7 @@ package me.enivzoy.leaputils.pov
 import com.odtheking.odin.clickgui.settings.impl.BooleanSetting
 import com.odtheking.odin.clickgui.settings.impl.NumberSetting
 import com.odtheking.odin.events.LevelEvent
+import com.odtheking.odin.events.MessageEvent
 import com.odtheking.odin.events.ScreenEvent
 import com.odtheking.odin.events.core.EventPriority
 import com.odtheking.odin.events.core.on
@@ -27,6 +28,8 @@ object BloodRush : Module(
     private var menuOpenedAt = 0L
     private var inLeapMenu = false
     private var leapedThisMenu = false
+    @Volatile
+    private var bloodDoorOpenedChat = false
 
     override fun onDisable() {
         resetMenuState()
@@ -53,6 +56,7 @@ object BloodRush : Module(
     private fun isBloodRushActive(): Boolean {
         if (OdinAccess.inBoss) return false
         if (OdinAccess.bloodDoorOpened) return false
+        if (bloodDoorOpenedChat) return false
         if (OdinAccess.bloodKeyPickedUp) return false
         try {
             val m = DungeonUtils::class.java.getDeclaredMethod("getBloodDone")
@@ -105,7 +109,7 @@ object BloodRush : Module(
 
             val currentClass = getCurrentClass() ?: return@on
             if (!isValidClassForBloodRush(currentClass)) return@on
-            if (OdinAccess.bloodDoorOpened) {
+            if (OdinAccess.bloodDoorOpened || bloodDoorOpenedChat) {
                 resetMenuState()
                 return@on
             }
@@ -140,7 +144,7 @@ object BloodRush : Module(
                 resetMenuState()
                 return@register
             }
-            if (OdinAccess.bloodDoorOpened) {
+            if (OdinAccess.bloodDoorOpened || bloodDoorOpenedChat) {
                 resetMenuState()
                 return@register
             }
@@ -174,7 +178,19 @@ object BloodRush : Module(
             }
         }
 
+        on<MessageEvent.Chat>(EventPriority.HIGH) {
+            try {
+                val msg = this.message
+                if (msg.contains("BLOOD DOOR", ignoreCase = true) && msg.contains("opened", ignoreCase = true)) {
+                    bloodDoorOpenedChat = true
+                    resetMenuState()
+                }
+            } catch (e: Exception) {
+            }
+        }
+
         on<LevelEvent.Load> {
+            bloodDoorOpenedChat = false
             resetMenuState()
         }
     }
