@@ -79,7 +79,15 @@ object PovPreviews : Module(
 
     init {
         on<ScreenEvent.Render>(EventPriority.HIGHEST + 100) {
-            PovCapture.onScreenExtract(guiGraphics)
+            try {
+                PovCapture.onScreenExtract(guiGraphics)
+            } catch (t: Throwable) {
+                // fallback to pip
+                try {
+                    PovPip.onScreenExtract(guiGraphics)
+                } catch (_: Throwable) {
+                }
+            }
         }
 
         ClientTickEvents.END_CLIENT_TICK.register {
