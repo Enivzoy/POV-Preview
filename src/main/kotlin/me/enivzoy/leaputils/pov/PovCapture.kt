@@ -34,23 +34,12 @@ object PovCapture {
     fun costLine(): String? {
         if (!PovPreviews.showCost || !PovPreviews.wants()) return null
         val live = (0 until FEEDS).count { !empty[it] && status[it] == "ok" }
-        return "§7POV §f${String.format("%.1f", lastCostMs)}§7ms  §f$live§7/4"
+        return "ï¿½7POV ï¿½f${String.format("%.1f", lastCostMs)}ï¿½7ms  ï¿½f$liveï¿½7/4"
     }
 
     fun onScreenExtract(gfx: GuiGraphicsExtractor) {
-        if (disabledForSession) {
-            return
-        }
-        val mc = Minecraft.getInstance()
-        if (!PovPreviews.wants() || mc.level == null || mc.player == null) {
-            return
-        }
-        val guiWidth = gfx.guiWidth()
-        val guiHeight = gfx.guiHeight()
-        if (guiWidth <= 0 || guiHeight <= 0) return
-
-        refreshSlots()
-        submitEntityPreviews(gfx)
+        // Disabled to avoid crashes - menu loading issues
+        return
     }
 
     private fun refreshSlots() {
