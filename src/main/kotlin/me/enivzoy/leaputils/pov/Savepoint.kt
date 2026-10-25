@@ -8,7 +8,6 @@ import com.odtheking.odin.events.core.EventPriority
 import com.odtheking.odin.events.core.on
 import com.odtheking.odin.features.Category
 import com.odtheking.odin.features.Module
-import com.odtheking.odin.features.impl.dungeon.LeapMenu
 import com.odtheking.odin.utils.skyblock.dungeon.DungeonClass
 import com.odtheking.odin.utils.skyblock.dungeon.DungeonPlayer
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents
@@ -21,7 +20,7 @@ object Savepoint : Module(
     description = "Auto leap to correct people for F7/M7 phases"
 ) {
     val savepointEnabled by BooleanSetting("Enabled", true, desc = "")
-    val delay by NumberSetting("Delay", 250, 0..1000, 10, desc = "")
+    val delay by NumberSetting("Delay", 250, 0..1000, 10, desc = "Delay after opening the leap menu")
 
     val maxor by BooleanSetting("Maxor", true, desc = "")
     val maxorLeftClass by SelectorSetting("Leap if left", DungeonClass.BERSERK, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER))
@@ -29,24 +28,43 @@ object Savepoint : Module(
     val maxorRightClass by SelectorSetting("Leap if right", DungeonClass.ARCHER, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER))
     val maxorRightTo by SelectorSetting("To right", DungeonClass.HEALER, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER))
 
-    val storm by BooleanSetting("Storm", true, desc = "")
-    val stormIf by SelectorSetting("Leap if", DungeonClass.HEALER, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER))
-    val stormTo by SelectorSetting("To", DungeonClass.MAGE, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER))
+    val storm by BooleanSetting("Storm", true, desc = "Run the Drop off and Purple Spotter leap sequence after Maxor")
+    val dropOffSpotter by SelectorSetting("Drop off spotter", DungeonClass.BERSERK, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER))
+    val purpleSpotter by SelectorSetting("Purple Spotter", DungeonClass.MAGE, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER))
 
     val goldor by BooleanSetting("Goldor", true, desc = "")
-    val goldorIf by SelectorSetting("Leap if", DungeonClass.HEALER, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER))
-    val goldorTo by SelectorSetting("To", DungeonClass.MAGE, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER))
+    val goldorIf by SelectorSetting("Goldor Leap If Class", DungeonClass.HEALER, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER))
+    val goldorTo by SelectorSetting("Goldor Waypoint", DungeonClass.MAGE, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER))
 
     val necron by BooleanSetting("Necron", true, desc = "")
-    val necronIf by SelectorSetting("Leap if", DungeonClass.HEALER, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER))
-    val necronTo by SelectorSetting("To", DungeonClass.MAGE, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER))
 
-    val terminals by BooleanSetting("Terminals/Core", true, desc = "")
+    val soloCrush by BooleanSetting("SoloCrush", true, desc = "Auto-leap to the spotter for the current Goldor section")
+    val section1Spotter by SelectorSetting("Section 1 Spotter", DungeonClass.BERSERK, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER))
+    val section2Spotter by SelectorSetting("Section 2 Spotter", DungeonClass.MAGE, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER))
+    val section3Spotter by SelectorSetting("Section 3 Spotter", DungeonClass.HEALER, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER))
     val coreSpotter by SelectorSetting("Core Spotter", DungeonClass.MAGE, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER))
+    val earlyNecronSpotter by SelectorSetting("Early Necron Spotter", DungeonClass.MAGE, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER))
 
-    private var lastLeap = 0L
-    private var leapedThisPhase = false
+    private var menuOpenedAt = 0L
+    private var inLeapMenu = false
+    private var leapedThisMenu = false
+    private var maxorLeapedThisPhase = false
+    private var sequenceStep = 0
+    private var highestGoldorSection = 0
     private var lastPhaseKey = ""
+    private var loggedPhaseInfo = false
+    private var loggedMissing = false
+
+    override fun onDisable() {
+        inLeapMenu = false
+        menuOpenedAt = 0
+        leapedThisMenu = false
+        maxorLeapedThisPhase = false
+        sequenceStep = 0
+        highestGoldorSection = 0
+        lastPhaseKey = ""
+        super.onDisable()
+    }
 
     private fun getMyClass(): DungeonClass? {
         val p = OdinAccess.currentDungeonPlayer ?: return null
@@ -57,11 +75,86 @@ object Savepoint : Module(
         return OdinAccess.leapTeammates.firstOrNull { it.clazz == clazz && !it.isDead }
     }
 
-    private fun leapTo(p: DungeonPlayer) {
-        val mc = Minecraft.getInstance()
-        val screen = mc.gui.screen() as? AbstractContainerScreen<*> ?: return
-        OdinAccess.autoLeapTo(p, screen)
-        println("[LeapUtils Savepoint] leapt to " + p.name + " (" + p.clazz + ")")
+    private fun isLeapScreen(screen: AbstractContainerScreen<*>): Boolean {
+        val title = screen.title.string
+        return title == "Spirit Leap" || title == "Teleport to Player" || title == "Obsidian"
+    }
+
+    private fun warnMissing(what: String) {
+        if (loggedMissing) return
+        loggedMissing = true
+        println("[LeapUtils Savepoint] waiting for $what")
+    }
+
+    private fun leapTo(p: DungeonPlayer, label: String, screen: AbstractContainerScreen<*>): Boolean {
+        if (!OdinAccess.autoLeapTo(p, screen)) {
+            warnMissing("${p.name} ($label) in the leap menu")
+            return false
+        }
+        leapedThisMenu = true
+        println("[LeapUtils Savepoint] $label: leapt to ${p.name} (${p.clazz})")
+        return true
+    }
+
+    private fun handleMaxor(myClass: DungeonClass, screen: AbstractContainerScreen<*>) {
+        if (maxorLeapedThisPhase) return
+        val to = when (myClass) {
+            maxorLeftClass -> maxorLeftTo
+            maxorRightClass -> maxorRightTo
+            else -> return
+        }
+        val target = find(to) ?: run { warnMissing("Maxor target ($to)"); return }
+        if (leapTo(target, "Maxor", screen)) maxorLeapedThisPhase = true
+    }
+
+    private fun handleStorm(screen: AbstractContainerScreen<*>) {
+        val to = if (sequenceStep == 0) dropOffSpotter else purpleSpotter
+        val label = if (sequenceStep == 0) "Drop off Spotter" else "Purple Spotter"
+        val target = find(to) ?: run { warnMissing("$label target ($to)"); return }
+        if (leapTo(target, label, screen) && sequenceStep == 0) sequenceStep = 1
+    }
+
+    private fun handleGoldor(myClass: DungeonClass?, screen: AbstractContainerScreen<*>) {
+        if (soloCrush) {
+            val section = getGoldorSection()
+            val (to, label) = when (section) {
+                1 -> section1Spotter to "Section 1 Spotter"
+                2 -> section2Spotter to "Section 2 Spotter"
+                3 -> if (sequenceStep == 0) section3Spotter to "Section 3 Spotter" else coreSpotter to "Core Spotter"
+                4 -> earlyNecronSpotter to "Early Necron Spotter"
+                else -> {
+                    warnMissing("Goldor section number (section=$section)")
+                    return
+                }
+            }
+            val spotter = find(to) ?: run { warnMissing("$label target ($to)"); return }
+            if (leapTo(spotter, label, screen) && section == 3 && sequenceStep == 0) sequenceStep = 1
+            return
+        }
+
+        if (goldor && myClass == goldorIf) {
+            val target = find(goldorTo) ?: run { warnMissing("Goldor target ($goldorTo)"); return }
+            leapTo(target, "Goldor", screen)
+            return
+        }
+    }
+
+    private fun handleNecron(screen: AbstractContainerScreen<*>) {
+        val target = OdinAccess.findClosestTeammateTo(54.0, 65.0, 76.0, screen)
+            ?: run { warnMissing("a leapable teammate near the Necron spot (54, 65, 76)"); return }
+        leapTo(target, "Necron", screen)
+    }
+
+    private fun getGoldorSectionKey(phase: String): String {
+        if (!phase.contains("goldor") && !phase.contains("p3")) return ""
+        return ":section=${getGoldorSection()}"
+    }
+
+    private fun getGoldorSection(): Int? {
+        OdinAccess.terminalSection?.let { observed ->
+            if (observed in 1..4) highestGoldorSection = maxOf(highestGoldorSection, observed)
+        }
+        return highestGoldorSection.takeIf { it > 0 }
     }
 
     private fun getPhase(): String {
@@ -73,7 +166,6 @@ object Savepoint : Module(
             if (b.contains("p3") || b.contains("goldor")) return "goldor"
             if (b.contains("p4") || b.contains("necron")) return "necron"
             if (b.contains("term") || b.contains("device")) return "terminals"
-            println("[LeapUtils Savepoint] phase raw=$bp -> $b")
             return b
         }
         val room = OdinAccess.currentRoomData?.let { OdinAccess.getRoomName(it) } ?: ""
@@ -87,104 +179,76 @@ object Savepoint : Module(
 
     init {
         on<ScreenEvent.Render>(EventPriority.HIGHEST + 150) {
-            if (!enabled || !savepointEnabled) return@on
-            try {
-                if (LeapMenu.enabled == false) {
-                    // Don't require LeapMenu module to be enabled
-                }
-            } catch (e: Exception) {
+            if (!enabled || !savepointEnabled) {
+                inLeapMenu = false
+                leapedThisMenu = false
+                return@on
             }
+
+            val screen = Minecraft.getInstance().gui.screen() as? AbstractContainerScreen<*> ?: run {
+                inLeapMenu = false
+                leapedThisMenu = false
+                return@on
+            }
+            if (!isLeapScreen(screen)) {
+                inLeapMenu = false
+                leapedThisMenu = false
+                return@on
+            }
+            if (!inLeapMenu) {
+                inLeapMenu = true
+                menuOpenedAt = System.currentTimeMillis()
+                leapedThisMenu = false
+            }
+
             if (!OdinAccess.inBoss) return@on
             if (!isF7()) return@on
-
-            val mc = Minecraft.getInstance()
-            val screen = mc.gui.screen() as? AbstractContainerScreen<*> ?: return@on
-            val title = screen.title.string
-            if (title != "Spirit Leap" && title != "Teleport to Player" && title != "Obsidian") return@on
+            if (leapedThisMenu) return@on
 
             val now = System.currentTimeMillis()
-            if (now - lastLeap < delay) return@on
-
             val phase = getPhase()
-            val key = (OdinAccess.floorName ?: "") + ":" + phase
+            val key = (OdinAccess.floorName ?: "") + ":" + phase + getGoldorSectionKey(phase)
             if (key != lastPhaseKey) {
                 lastPhaseKey = key
-                leapedThisPhase = false
+                sequenceStep = 0
+                maxorLeapedThisPhase = false
+                loggedPhaseInfo = false
+                loggedMissing = false
+                menuOpenedAt = now
                 println("[LeapUtils Savepoint] Phase changed: $phase (raw:${OdinAccess.bossPhase}) floor=${OdinAccess.floorName}")
             }
-            if (leapedThisPhase) return@on
+            if (now - menuOpenedAt < delay) return@on
 
-            val myClass = getMyClass() ?: run { println("[LeapUtils Savepoint] no myClass"); return@on }
-            println("[LeapUtils Savepoint] in boss $phase myClass=$myClass leapTeammates=${OdinAccess.leapTeammates.size}")
+            val myClass = getMyClass()
+            if (!loggedPhaseInfo) {
+                loggedPhaseInfo = true
+                println("[LeapUtils Savepoint] phase=$phase myClass=${myClass ?: "unknown"} teammates=${OdinAccess.leapTeammates.size}")
+            }
 
-            if (maxor && phase.contains("maxor")) {
-                if (myClass == maxorLeftClass) {
-                    val t = find(maxorLeftTo) ?: run { println("[LeapUtils Savepoint] no target for left crystal"); return@on }
-                    leapTo(t)
-                    leapedThisPhase = true
-                    lastLeap = now
-                    return@on
+            when {
+                maxor && phase.contains("maxor") -> {
+                    val clazz = myClass ?: return@on
+                    handleMaxor(clazz, screen)
                 }
-                if (myClass == maxorRightClass) {
-                    val t = find(maxorRightTo) ?: run { println("[LeapUtils Savepoint] no target for right crystal"); return@on }
-                    leapTo(t)
-                    leapedThisPhase = true
-                    lastLeap = now
-                    return@on
-                }
-                return@on
-            }
-            if (storm && phase.contains("storm")) {
-                if (myClass == stormIf) {
-                    val t = find(stormTo) ?: return@on
-                    leapTo(t)
-                    leapedThisPhase = true
-                    lastLeap = now
-                }
-                return@on
-            }
-            if (goldor && (phase.contains("goldor") || phase.contains("p3"))) {
-                if (myClass == goldorIf) {
-                    val t = find(goldorTo) ?: run { println("[LeapUtils Savepoint] no target for goldor"); return@on }
-                    leapTo(t)
-                    leapedThisPhase = true
-                    lastLeap = now
-                    return@on
-                }
-                if (terminals && phase.contains("p3")) {
-                    if (myClass == coreSpotter) return@on
-                    val spotter = find(coreSpotter) ?: run { println("[LeapUtils Savepoint] no core spotter found"); return@on }
-                    leapTo(spotter)
-                    leapedThisPhase = true
-                    lastLeap = now
-                    return@on
-                }
-                return@on
-            }
-            if (necron && phase.contains("necron")) {
-                if (myClass == necronIf) {
-                    val t = find(necronTo) ?: run { println("[LeapUtils Savepoint] no target for necron"); return@on }
-                    leapTo(t)
-                    leapedThisPhase = true
-                    lastLeap = now
-                    return@on
-                }
-                return@on
-            }
-            if (terminals && (phase.contains("term") || phase.contains("device"))) {
-                if (myClass == coreSpotter) return@on
-                val spotter = find(coreSpotter) ?: run { println("[LeapUtils Savepoint] no core spotter found"); return@on }
-                leapTo(spotter)
-                leapedThisPhase = true
-                lastLeap = now
-                return@on
+                storm && phase.contains("storm") -> handleStorm(screen)
+                (phase.contains("goldor") || phase.contains("p3")) -> handleGoldor(myClass, screen)
+                necron && phase.contains("necron") -> handleNecron(screen)
             }
         }
 
         ClientTickEvents.END_CLIENT_TICK.register {
+            val screen = Minecraft.getInstance().gui.screen() as? AbstractContainerScreen<*>
+            if (screen == null || !isLeapScreen(screen)) {
+                inLeapMenu = false
+            }
             if (!OdinAccess.inBoss) {
-                leapedThisPhase = false
+                leapedThisMenu = false
+                maxorLeapedThisPhase = false
+                sequenceStep = 0
+                highestGoldorSection = 0
                 lastPhaseKey = ""
+                loggedPhaseInfo = false
+                loggedMissing = false
             }
         }
     }

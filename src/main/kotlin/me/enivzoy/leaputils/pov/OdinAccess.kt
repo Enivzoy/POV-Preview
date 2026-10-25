@@ -31,6 +31,16 @@ object OdinAccess {
     private val getLeapTeammatesMethod = findMethod(dungeonUtilsClass, "getLeapTeammates")
     private val getF7PhaseMethod = runCatching { findMethod(dungeonUtilsClass, "getF7Phase") }.getOrNull()
     private val getBossPhaseMethod2 = runCatching { findMethod(dungeonUtilsClass, "getBossPhase") }.getOrNull()
+
+    private val terminalsStatusClass by lazy {
+        runCatching { Class.forName("com.odtheking.odin.features.impl.boss.TerminalsStatus") }.getOrNull()
+    }
+    private val getTerminalSectionMethod by lazy {
+        runCatching { terminalsStatusClass?.getDeclaredMethod("access\$getSection\$p") }.getOrNull()
+    }
+    private val terminalSectionField by lazy {
+        runCatching { terminalsStatusClass?.getDeclaredField("section")?.apply { isAccessible = true } }.getOrNull()
+    }
     
     private val getPhaseMethod = runCatching { findMethod(dungeonUtilsClass, "getPhase") }.getOrNull()
     private val getCurrentPhaseMethod = runCatching { findMethod(dungeonUtilsClass, "getCurrentPhase") }.getOrNull()
@@ -90,6 +100,17 @@ object OdinAccess {
 
     val hasBloodKeyBeenPickedUp: Boolean
         get() = bloodKeyPickedUp || bloodDoorOpened
+
+    val terminalSection: Int?
+        get() {
+            getTerminalSectionMethod?.let { m ->
+                runCatching { m.invoke(null) as? Int }.getOrNull()?.let { return it }
+            }
+            terminalSectionField?.let { f ->
+                runCatching { f.getInt(null) }.getOrNull()?.let { return it }
+            }
+            return null
+        }
     
     val bossPhase: String?
         get() {
@@ -143,11 +164,34 @@ object OdinAccess {
             return null
         }
     
-    fun autoLeapTo(teammate: DungeonPlayer, screen: AbstractContainerScreen<*>) {
-        try {
+    private fun stripFormatting(text: String): String {
+        val sb = StringBuilder(text.length)
+        var i = 0
+        while (i < text.length) {
+            if (text[i] == '\u00a7') i += 2 else sb.append(text[i++])
+        }
+        return sb.toString()
+    }
+
+    private fun menuHasName(screen: AbstractContainerScreen<*>, name: String): Boolean {
+        val slots = screen.menu.slots
+        if (slots.size < 16) return false
+        val target = stripFormatting(name)
+        for (i in 11 until 16) {
+            val hover = slots[i].item.hoverName.string.substringAfter(' ')
+            if (hover.equals(target, ignoreCase = true)) return true
+        }
+        return false
+    }
+
+    fun autoLeapTo(teammate: DungeonPlayer, screen: AbstractContainerScreen<*>): Boolean {
+        return try {
+            if (!menuHasName(screen, teammate.name)) return false
             leapToMethod.invoke(leapMenuInstance, teammate.name, screen)
+            true
         } catch (e: Exception) {
             println("[LeapUtils] Failed to leap: ${e.message}")
+            false
         }
     }
     
@@ -228,6 +272,31 @@ object OdinAccess {
 
     fun findTeammateByClass(targetClass: DungeonClass): DungeonPlayer? {
         return leapTeammates.find { it.clazz == targetClass && it.entity != null && !it.isDead }
+    }
+
+    fun findClosestTeammateTo(
+        x: Double,
+        y: Double,
+        z: Double,
+        screen: AbstractContainerScreen<*>
+    ): DungeonPlayer? {
+        var closest: DungeonPlayer? = null
+        var closestDistance = Double.MAX_VALUE
+
+        for (teammate in leapTeammates) {
+            if (teammate.isDead || !menuHasName(screen, teammate.name)) continue
+            val entity = teammateEntity(teammate) ?: continue
+            val dx = entity.x - x
+            val dy = entity.y - y
+            val dz = entity.z - z
+            val distance = dx * dx + dy * dy + dz * dz
+            if (distance < closestDistance) {
+                closestDistance = distance
+                closest = teammate
+            }
+        }
+
+        return closest
     }
     
     fun isAtCoords(x: Int, y: Int, z: Int, leniency: Int): Boolean {
