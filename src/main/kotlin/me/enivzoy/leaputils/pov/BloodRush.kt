@@ -78,9 +78,10 @@ object BloodRush : Module(
         return title == "Spirit Leap" || title == "Teleport to Player"
     }
 
-    private fun autoLeapTo(teammate: DungeonPlayer, screen: AbstractContainerScreen<*>) {
-        OdinAccess.autoLeapTo(teammate, screen)
+    private fun autoLeapTo(teammate: DungeonPlayer, screen: AbstractContainerScreen<*>): Boolean {
+        if (!OdinAccess.autoLeapTo(teammate, screen)) return false
         println("[LeapUtils BloodRush] Auto-leaped to ${teammate.name} (${teammate.clazz}) for Blood Rush")
+        return true
     }
 
     init {
@@ -135,8 +136,9 @@ object BloodRush : Module(
             if (now - menuOpenedAt < delay) return@on
 
             val target = OdinAccess.findClosestToWitherDoor() ?: return@on
-            autoLeapTo(target, screen)
-            leapedThisMenu = true
+            if (autoLeapTo(target, screen)) {
+                leapedThisMenu = true
+            }
         }
 
         ClientTickEvents.END_CLIENT_TICK.register {

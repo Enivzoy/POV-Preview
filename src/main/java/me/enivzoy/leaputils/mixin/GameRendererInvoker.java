@@ -1,8 +1,8 @@
 package me.enivzoy.leaputils.mixin;
 
 import com.mojang.blaze3d.pipeline.RenderTarget;
+import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.renderer.GameRenderer;
-import net.minecraft.client.renderer.fog.FogRenderer;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Mutable;
 import org.spongepowered.asm.mixin.gen.Accessor;
@@ -17,10 +17,10 @@ public interface GameRendererInvoker {
     @Invoker("extractOptions")
     void cpExtractOptions();
 
+    @Invoker("extractCamera")
+    void cpExtractCamera(DeltaTracker deltaTracker, float worldPartialTicks, float cameraEntityPartialTicks);
+
     @Mutable
     @Accessor("mainRenderTarget")
     void cpSetMainRenderTarget(RenderTarget target);
-
-    @Accessor("fogRenderer")
-    FogRenderer cpFogRenderer();
 }

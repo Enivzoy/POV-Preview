@@ -6,9 +6,12 @@
   "client": [
     "CameraAccessor",
     "GameRendererInvoker",
+    "GameRendererMixin",
     "GuiGraphicsExtractorAccessor",
+    "LevelRendererMixin",
     "LivingEntityAccessor",
-    "Matrix4fStackAccessor"
+    "Matrix4fStackAccessor",
+    "SectionUpdateTrackerMixin"
   ],
   "injectors": {
     "defaultRequire": 1

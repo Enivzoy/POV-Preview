@@ -1,108 +1,111 @@
 package me.enivzoy.leaputils.pov
 
 import me.enivzoy.leaputils.mixin.LivingEntityAccessor
-import net.minecraft.core.SectionPos
-import net.minecraft.util.Mth
+import net.minecraft.client.Minecraft
+import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.LivingEntity
-import net.minecraft.world.level.Level
-import net.minecraft.world.phys.Vec3
-import kotlin.math.sqrt
+import java.util.UUID
 
 object PovPose {
 
     enum class Mode { VANILLA, RAW }
 
+    fun interface Restore {
+        fun restore()
+    }
+
+    private val NONE = Restore {}
+
     data class Pose(
         val x: Double,
         val y: Double,
         val z: Double,
-        val yaw: Float,
+        val headYaw: Float,
         val pitch: Float,
-        val eyeHeight: Float,
     )
 
-    sealed interface Result {
-        data class Ok(val pose: Pose) : Result
-        data class Rejected(val reason: String) : Result
-    }
+    data class Sample(val pose: Pose, val nanos: Long)
 
     private const val MAX_HORIZONTAL = 33_554_432.0
-
     private const val MAX_VERTICAL = 8_388_608.0
+    private const val KEEP_NANOS = 10_000_000_000L
 
-    private data class Raw(val x: Double, val y: Double, val z: Double, val yaw: Float, val pitch: Float)
+    private val samples = HashMap<UUID, Sample>()
 
-    fun of(
-        entity: LivingEntity,
-        mode: Mode,
-        partialTicks: Float,
-        origin: Vec3,
-        maxDistance: Double,
-    ): Result {
-        val raw = read(entity, mode, partialTicks)
-        val pose = sanitize(raw, origin, maxDistance) ?: return Result.Rejected(reason(raw, origin))
-        return Result.Ok(pose.copy(eyeHeight = eyeHeight(entity)))
+    fun begin(entity: LivingEntity, mode: Mode): Restore = when (mode) {
+        Mode.VANILLA -> NONE
+        Mode.RAW -> apply(entity, packetTarget(entity))
     }
 
-    private fun read(entity: LivingEntity, mode: Mode, partialTicks: Float): Raw {
-        val live = entity.position()
-        return when (mode) {
-            Mode.VANILLA -> {
-                val p = partialTicks.toDouble()
-                Raw(
-                    Mth.lerp(p, entity.xo, live.x),
-                    Mth.lerp(p, entity.yo, live.y),
-                    Mth.lerp(p, entity.zo, live.z),
-                    entity.getViewYRot(partialTicks),
-                    entity.getViewXRot(partialTicks),
-                )
-            }
-
-            Mode.RAW -> {
-                val interpolation = entity.interpolation
-                val interpolating = interpolation.hasActiveInterpolation()
-                val pos = if (interpolating) interpolation.position() else live
-                val pitch = if (interpolating) interpolation.xRot() else entity.xRot
-                val accessor = entity as LivingEntityAccessor
-                val headYaw = if (accessor.cpLerpHeadSteps() > 0) accessor.cpLerpYHeadRot().toFloat() else entity.yHeadRot
-                Raw(pos.x, pos.y, pos.z, headYaw, pitch)
-            }
+    fun onClientTick() {
+        val mc = Minecraft.getInstance()
+        val level = mc.level
+        if (level == null) {
+            samples.clear()
+            return
         }
+        val self = mc.player
+        val now = System.nanoTime()
+        for (player in level.players()) {
+            if (player === self) continue
+            samples[player.uuid] = Sample(packetTarget(player), now)
+        }
+        samples.values.removeIf { now - it.nanos > KEEP_NANOS }
     }
 
-    private fun sanitize(raw: Raw, origin: Vec3, maxDistance: Double): Pose? {
-        if (!raw.x.isFinite() || !raw.y.isFinite() || !raw.z.isFinite()) return null
-        if (!raw.yaw.isFinite() || !raw.pitch.isFinite()) return null
-        if (raw.x < -MAX_HORIZONTAL || raw.x > MAX_HORIZONTAL) return null
-        if (raw.z < -MAX_HORIZONTAL || raw.z > MAX_HORIZONTAL) return null
-        if (raw.y < -MAX_VERTICAL || raw.y > MAX_VERTICAL) return null
-        if (origin.distanceToSqr(raw.x, raw.y, raw.z) > maxDistance * maxDistance) return null
-        return Pose(
-            raw.x,
-            raw.y,
-            raw.z,
-            Mth.wrapDegrees(raw.yaw),
-            raw.pitch.coerceIn(-90f, 90f),
-            0f,
-        )
+    fun lastSeen(id: UUID): Sample? = samples[id]
+
+    fun reset() = samples.clear()
+
+    fun isSane(entity: Entity): Boolean {
+        val x = entity.x
+        val y = entity.y
+        val z = entity.z
+        if (!x.isFinite() || !y.isFinite() || !z.isFinite()) return false
+        if (x < -MAX_HORIZONTAL || x > MAX_HORIZONTAL) return false
+        if (z < -MAX_HORIZONTAL || z > MAX_HORIZONTAL) return false
+        if (y < -MAX_VERTICAL || y > MAX_VERTICAL) return false
+        return entity.getViewYRot(1f).isFinite() && entity.getViewXRot(1f).isFinite()
     }
 
-    private fun reason(raw: Raw, origin: Vec3): String = when {
-        !raw.x.isFinite() || !raw.y.isFinite() || !raw.z.isFinite() -> "not a finite position"
-        !raw.yaw.isFinite() || !raw.pitch.isFinite() -> "not a finite rotation"
-        raw.x < -MAX_HORIZONTAL || raw.x > MAX_HORIZONTAL -> "outside the coordinate range"
-        raw.z < -MAX_HORIZONTAL || raw.z > MAX_HORIZONTAL -> "outside the coordinate range"
-        raw.y < -MAX_VERTICAL || raw.y > MAX_VERTICAL -> "outside the coordinate range"
-        else -> "%.0f blocks away".format(sqrt(origin.distanceToSqr(raw.x, raw.y, raw.z)))
+    private fun packetTarget(entity: LivingEntity): Pose {
+        val interpolation = entity.interpolation
+        val active = interpolation.hasActiveInterpolation()
+        val pos = if (active) interpolation.position() else entity.position()
+        val pitch = if (active) interpolation.xRot() else entity.xRot
+        val accessor = entity as LivingEntityAccessor
+        val headYaw = if (accessor.cpLerpHeadSteps() > 0) accessor.cpLerpYHeadRot().toFloat() else entity.yHeadRot
+        return Pose(pos.x, pos.y, pos.z, headYaw, pitch)
     }
 
-    private fun eyeHeight(entity: LivingEntity): Float = entity.eyeHeight.coerceIn(0f, 8f)
+    private fun apply(entity: LivingEntity, pose: Pose): Restore {
+        val oldPos = entity.position()
+        val oldXo = entity.xo
+        val oldYo = entity.yo
+        val oldZo = entity.zo
+        val oldXRot = entity.xRot
+        val oldXRotO = entity.xRotO
+        val oldHeadYaw = entity.yHeadRot
+        val oldHeadYawO = entity.yHeadRotO
 
-    fun fitsWorld(pose: Pose, level: Level): Boolean {
-        if (pose.y < level.minY - 128.0 || pose.y > level.maxY + 128.0) return false
-        if (!level.worldBorder.isWithinBounds(Vec3(pose.x, pose.y, pose.z))) return false
-        val chunkX = SectionPos.blockToSectionCoord(Mth.floor(pose.x))
-        val chunkZ = SectionPos.blockToSectionCoord(Mth.floor(pose.z))
-        return level.hasChunk(chunkX, chunkZ)
+        entity.setPos(pose.x, pose.y, pose.z)
+        entity.xo = pose.x
+        entity.yo = pose.y
+        entity.zo = pose.z
+        entity.xRot = pose.pitch
+        entity.xRotO = pose.pitch
+        entity.yHeadRot = pose.headYaw
+        entity.yHeadRotO = pose.headYaw
+
+        return Restore {
+            entity.setPos(oldPos.x, oldPos.y, oldPos.z)
+            entity.xo = oldXo
+            entity.yo = oldYo
+            entity.zo = oldZo
+            entity.xRot = oldXRot
+            entity.xRotO = oldXRotO
+            entity.yHeadRot = oldHeadYaw
+            entity.yHeadRotO = oldHeadYawO
+        }
     }
 }

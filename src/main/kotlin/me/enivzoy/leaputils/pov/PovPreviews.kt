@@ -3,8 +3,8 @@ package me.enivzoy.leaputils.pov
 import com.odtheking.odin.clickgui.settings.impl.BooleanSetting
 import com.odtheking.odin.clickgui.settings.impl.NumberSetting
 import com.odtheking.odin.clickgui.settings.impl.SelectorSetting
-import com.odtheking.odin.events.LevelEvent
 import com.odtheking.odin.events.ScreenEvent
+import com.odtheking.odin.events.LevelEvent
 import com.odtheking.odin.events.core.EventPriority
 import com.odtheking.odin.events.core.on
 import com.odtheking.odin.features.Category
@@ -24,8 +24,8 @@ object PovPreviews : Module(
 ) {
 
     val previewsPerFrame by NumberSetting(
-        "Previews Per Frame", 1, 1..4, 1,
-        desc = "Feeds refreshed each frame; the rest keep their last image. Higher is smoother and costs more."
+        "Previews Per Frame", 1, 1..2, 1,
+        desc = "Feeds refreshed each frame; the rest keep their last image. Capped at 2 to keep vanilla's post-pass fence ring stable."
     )
 
     val resolution by NumberSetting(
@@ -33,9 +33,19 @@ object PovPreviews : Module(
         desc = "Render scale of each feed, as a fraction of its quadrant. Lower is cheaper and softer."
     )
 
+    val recullTerrain by BooleanSetting(
+        "Re-cull Terrain", true,
+        desc = "Re-runs Sodium's terrain cull from the teammate's eyes. Off is cheaper but shows only the chunks already visible to you."
+    )
+
     val opacity by NumberSetting(
         "Opacity", 1f, 0.1..1.0, 0.05f,
         desc = "How opaque the previews are. Below 1 you can see your own game through them."
+    )
+
+    val skipOwnView by BooleanSetting(
+        "Skip Own View", true,
+        desc = "Skips rendering your own world view while the previews cover the screen. Saves a full world render per frame; only applies when all four feeds have an image and Opacity is 1."
     )
 
     enum class HeadSmoothing { VANILLA, RAW }
@@ -43,11 +53,6 @@ object PovPreviews : Module(
     val headSmoothing by SelectorSetting(
         "Head Smoothing", HeadSmoothing.VANILLA, desc = "How a teammate's head movement is interpolated for their preview.",
         listOf(HeadSmoothing.VANILLA, HeadSmoothing.RAW)
-    )
-
-    val maxDistance by NumberSetting(
-        "Max Distance", 2000, 16..5000, 16,
-        desc = "Previews skip teammates further away than this. Guards against corrupt far-away positions."
     )
 
     val showCost by BooleanSetting(
@@ -64,7 +69,7 @@ object PovPreviews : Module(
     val mode: PovPose.Mode
         get() = if (headSmoothing == HeadSmoothing.RAW) PovPose.Mode.RAW else PovPose.Mode.VANILLA
 
-    private     val costHud by HUD(
+    private val costHud by HUD(
         "POV Cost",
         desc = "Milliseconds the POV previews added to the last frame, and how many feeds are live.",
         x = 491,
@@ -78,19 +83,19 @@ object PovPreviews : Module(
     }
 
     init {
+        costHud.enabled = true
+
         on<ScreenEvent.Render>(EventPriority.HIGHEST + 100) {
             try {
                 PovCapture.onScreenExtract(guiGraphics)
             } catch (t: Throwable) {
-                // fallback to pip
-                try {
-                    PovPip.onScreenExtract(guiGraphics)
-                } catch (_: Throwable) {
-                }
+                println("[LeapUtils][PovPreviews] ScreenEvent.Render threw: $t")
+                t.printStackTrace()
             }
         }
 
         ClientTickEvents.END_CLIENT_TICK.register {
+            PovPose.onClientTick()
             PovCapture.releaseIfUnwanted()
         }
 
