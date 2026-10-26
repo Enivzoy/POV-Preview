@@ -2,6 +2,7 @@ package me.enivzoy.leaputils.pov
 
 import com.odtheking.odin.clickgui.settings.impl.BooleanSetting
 import com.odtheking.odin.clickgui.settings.impl.NumberSetting
+import com.odtheking.odin.events.FloorEnterEvent
 import com.odtheking.odin.events.LevelEvent
 import com.odtheking.odin.events.MessageEvent
 import com.odtheking.odin.events.ScreenEvent
@@ -10,7 +11,6 @@ import com.odtheking.odin.events.core.on
 import com.odtheking.odin.features.Category
 import com.odtheking.odin.features.Module
 import com.odtheking.odin.utils.skyblock.dungeon.DungeonClass
-import com.odtheking.odin.utils.skyblock.dungeon.DungeonPlayer
 import com.odtheking.odin.utils.skyblock.dungeon.DungeonUtils
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents
 import net.minecraft.client.Minecraft
@@ -44,6 +44,14 @@ object BloodRush : Module(
         leapedThisMenu = false
     }
 
+    private fun bloodDone(): Boolean =
+        OdinAccess.bloodDoorOpened ||
+            bloodDoorOpenedChat ||
+            runCatching { DungeonUtils.bloodDone }.getOrDefault(false) ||
+            OdinAccess.currentRoomType?.toString()?.contains("BLOOD", ignoreCase = true) == true
+
+    private fun isBloodRushActive(): Boolean = !OdinAccess.inBoss && !bloodDone()
+
     private fun getCurrentClass(): DungeonClass? {
         val currentPlayer = OdinAccess.currentDungeonPlayer
         return if (currentPlayer != null && currentPlayer.clazz != DungeonClass.EMPTY) {
@@ -53,26 +61,6 @@ object BloodRush : Module(
 
     private fun isValidClassForBloodRush(clazz: DungeonClass): Boolean {
         return clazz == DungeonClass.ARCHER || clazz == DungeonClass.MAGE || clazz == DungeonClass.HEALER
-    }
-
-    private fun isBloodRushActive(): Boolean {
-        if (OdinAccess.inBoss) return false
-        if (OdinAccess.bloodDoorOpened) return false
-        if (bloodDoorOpenedChat) return false
-        if (OdinAccess.bloodKeyPickedUp) return false
-        try {
-            val m = DungeonUtils::class.java.getDeclaredMethod("getBloodDone")
-            m.isAccessible = true
-            val inst = DungeonUtils::class.java.getDeclaredField("INSTANCE").apply { isAccessible = true }.get(null)
-            if ((m.invoke(inst) as? Boolean) == true) return false
-        } catch (e: Exception) {
-        }
-        try {
-            val roomType = OdinAccess.currentRoomType
-            if (roomType != null && roomType.toString().contains("BLOOD", ignoreCase = true)) return false
-        } catch (e: Exception) {
-        }
-        return true
     }
 
     private fun isLeapMenu(screen: AbstractContainerScreen<*>): Boolean {
@@ -85,12 +73,6 @@ object BloodRush : Module(
         if (!enabled || !bloodRushEnabled || !schizoMode || leapedThisMenu || !isLeapMenu(container)) return false
         val currentClass = getCurrentClass() ?: return false
         return isValidClassForBloodRush(currentClass) && isBloodRushActive()
-    }
-
-    private fun autoLeapTo(teammate: DungeonPlayer, screen: AbstractContainerScreen<*>): Boolean {
-        if (!OdinAccess.autoLeapTo(teammate, screen)) return false
-        println("[LeapUtils BloodRush] Auto-leaped to ${teammate.name} (${teammate.clazz}) for Blood Rush")
-        return true
     }
 
     init {
@@ -121,35 +103,19 @@ object BloodRush : Module(
 
             val currentClass = getCurrentClass() ?: return@on
             if (!isValidClassForBloodRush(currentClass)) return@on
-            if (OdinAccess.bloodDoorOpened || bloodDoorOpenedChat) {
+            if (!isBloodRushActive()) {
                 resetMenuState()
                 return@on
             }
-            try {
-                val m = DungeonUtils::class.java.getDeclaredMethod("getBloodDone")
-                m.isAccessible = true
-                val inst = DungeonUtils::class.java.getDeclaredField("INSTANCE").apply { isAccessible = true }.get(null)
-                if ((m.invoke(inst) as? Boolean) == true) {
-                    resetMenuState()
-                    return@on
-                }
-            } catch (e: Exception) {
-            }
-            try {
-                val roomType = OdinAccess.currentRoomType
-                if (roomType != null && roomType.toString().contains("BLOOD", ignoreCase = true)) {
-                    resetMenuState()
-                    return@on
-                }
-            } catch (e: Exception) {
-            }
-            if (!isBloodRushActive()) return@on
             if (!schizoMode && now - menuOpenedAt < delay) return@on
             if (schizoMode && !SchizoLeapInput.consumeKeyPress(screen)) return@on
 
             val target = OdinAccess.findClosestToWitherDoor() ?: return@on
-            if (autoLeapTo(target, screen)) {
+            if (OdinAccess.autoLeapTo(target, screen)) {
                 leapedThisMenu = true
+                SpLog.info("bloodrush", "OK leaped to ${target.name}(${target.clazz}) for blood rush")
+            } else {
+                SpLog.warn("bloodrush", "FAILED to leap to ${target.name}(${target.clazz})")
             }
         }
 
@@ -158,29 +124,7 @@ object BloodRush : Module(
                 resetMenuState()
                 return@register
             }
-            if (OdinAccess.bloodDoorOpened || bloodDoorOpenedChat) {
-                resetMenuState()
-                return@register
-            }
-            try {
-                val m = DungeonUtils::class.java.getDeclaredMethod("getBloodDone")
-                m.isAccessible = true
-                val inst = DungeonUtils::class.java.getDeclaredField("INSTANCE").apply { isAccessible = true }.get(null)
-                if ((m.invoke(inst) as? Boolean) == true) {
-                    resetMenuState()
-                    return@register
-                }
-            } catch (e: Exception) {
-            }
-            try {
-                val roomType = OdinAccess.currentRoomType
-                if (roomType != null && roomType.toString().contains("BLOOD", ignoreCase = true)) {
-                    resetMenuState()
-                    return@register
-                }
-            } catch (e: Exception) {
-            }
-            if (OdinAccess.inBoss) {
+            if (!isBloodRushActive()) {
                 resetMenuState()
                 return@register
             }
@@ -197,10 +141,16 @@ object BloodRush : Module(
                 val msg = this.message
                 if (msg.contains("BLOOD DOOR", ignoreCase = true) && msg.contains("opened", ignoreCase = true)) {
                     bloodDoorOpenedChat = true
+                    SpLog.info("bloodrush", "blood door opened (chat)")
                     resetMenuState()
                 }
             } catch (e: Exception) {
             }
+        }
+
+        on<FloorEnterEvent> {
+            bloodDoorOpenedChat = false
+            resetMenuState()
         }
 
         on<LevelEvent.Load> {
