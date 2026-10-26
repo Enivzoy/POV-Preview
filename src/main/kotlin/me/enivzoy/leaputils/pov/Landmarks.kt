@@ -10,6 +10,8 @@ import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallba
 import net.fabricmc.fabric.api.client.command.v2.ClientCommands
 import net.fabricmc.loader.api.FabricLoader
 import net.minecraft.client.Minecraft
+import java.awt.Desktop
+import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -86,6 +88,20 @@ object LeapUtilsCommands {
                                         Command.SINGLE_SUCCESS
                                     }
                             )
+                    )
+                    .then(
+                        ClientCommands.literal("logs")
+                            .executes {
+                                val folder: File = SpLog.dir.toFile()
+                                runCatching {
+                                    if (!folder.exists()) folder.mkdirs()
+                                    Desktop.getDesktop().open(folder)
+                                    modMessage("[LeapUtils] opened ${folder.absolutePath}")
+                                }.onFailure {
+                                    modMessage("[LeapUtils] couldn't open folder: ${it.message}")
+                                }
+                                Command.SINGLE_SUCCESS
+                            }
                     )
             )
         }

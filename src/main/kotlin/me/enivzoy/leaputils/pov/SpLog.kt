@@ -10,7 +10,7 @@ import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
 object SpLog {
-    private val dir: Path = FabricLoader.getInstance().configDir.resolve("leaputils")
+    val dir: Path = FabricLoader.getInstance().configDir.resolve("leaputils")
     private val file: Path = dir.resolve("savepoint.log")
     private val lock = Any()
     private val timeFmt = DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
