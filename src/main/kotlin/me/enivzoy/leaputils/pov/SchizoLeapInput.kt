@@ -4,6 +4,7 @@ import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents
 import net.fabricmc.fabric.api.client.screen.v1.ScreenKeyboardEvents
 import net.minecraft.client.gui.screens.Screen
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen
+import org.lwjgl.glfw.GLFW
 import java.util.WeakHashMap
 
 object SchizoLeapInput {
@@ -20,8 +21,9 @@ object SchizoLeapInput {
                     registeredScreens.put(screen, true) == null
                 }
                 if (shouldRegister) {
-                    ScreenKeyboardEvents.allowKeyPress(screen).register { activeScreen, _ ->
-                        val handled = synchronized(lock) {
+                    ScreenKeyboardEvents.allowKeyPress(screen).register { activeScreen, keyEvent ->
+                        val isAlt = keyEvent.key() == GLFW.GLFW_KEY_LEFT_ALT || keyEvent.key() == GLFW.GLFW_KEY_RIGHT_ALT
+                        val handled = !isAlt && synchronized(lock) {
                             handlers.any { handler -> runCatching { handler(activeScreen) }.getOrDefault(false) }
                         }
                         if (handled) synchronized(lock) { pendingPresses[activeScreen] = true }
