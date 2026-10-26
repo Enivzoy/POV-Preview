@@ -10,7 +10,6 @@ import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallba
 import net.fabricmc.fabric.api.client.command.v2.ClientCommands
 import net.fabricmc.loader.api.FabricLoader
 import net.minecraft.client.Minecraft
-import java.awt.Desktop
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
@@ -93,12 +92,18 @@ object LeapUtilsCommands {
                         ClientCommands.literal("logs")
                             .executes {
                                 val folder: File = SpLog.dir.toFile()
+                                if (!folder.exists()) folder.mkdirs()
                                 runCatching {
-                                    if (!folder.exists()) folder.mkdirs()
-                                    Desktop.getDesktop().open(folder)
+                                    val os = System.getProperty("os.name").lowercase()
+                                    val cmd = when {
+                                        os.contains("win") -> listOf("explorer.exe", folder.absolutePath)
+                                        os.contains("mac") || os.contains("darwin") -> listOf("open", folder.absolutePath)
+                                        else -> listOf("xdg-open", folder.absolutePath)
+                                    }
+                                    ProcessBuilder(cmd).start()
                                     modMessage("[LeapUtils] opened ${folder.absolutePath}")
                                 }.onFailure {
-                                    modMessage("[LeapUtils] couldn't open folder: ${it.message}")
+                                    modMessage("[LeapUtils] couldn't open folder: ${it.javaClass.simpleName}: ${it.message}")
                                 }
                                 Command.SINGLE_SUCCESS
                             }

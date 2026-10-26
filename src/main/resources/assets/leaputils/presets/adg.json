@@ -13,6 +13,7 @@
     "S4: tank leaps mage after both levers, healer leaps mage (implied by the mage premove note).",
     "Archer and berserk recore leaps are not specified in the guide and are left blank; mage recore needs no leap.",
     "P2 seeds are from an older public source, the terminal guide does not cover P1/P2.",
+    "PREDEV: healer leaps the berserk waiting at the start of S1 during Storm (pre-dev for i4); other classes left to the user.",
     "No conds ship with this preset, add your own in the condition editor."
   ],
   "cells": {
@@ -22,6 +23,7 @@
     "P2.OLDPY.2": { "HEALER": "TODO_USER", "MAGE": "TODO_USER", "TANK": "TODO_USER", "BERSERK": "TODO_USER", "ARCHER": "TODO_USER" },
     "P2.NEWPY.1": { "MAGE": "TODO_USER", "TANK": "TODO_USER", "BERSERK": "TODO_USER", "ARCHER": "TODO_USER", "HEALER": "TODO_USER" },
     "P2.NEWPY.2": { "HEALER": "TODO_USER", "MAGE": "TODO_USER", "TANK": "TODO_USER", "BERSERK": "TODO_USER", "ARCHER": "TODO_USER" },
+    "PREDEV.1": { "HEALER": "BERSERK" },
     "P3.S1.1": { "HEALER": "ARCHER", "ARCHER": "MAGE", "TANK": "MAGE", "BERSERK": "ARCHER" },
     "P3.S1.2": { "BERSERK": "MAGE" },
     "P3.S2.1": { "HEALER": "TANK", "ARCHER": "TANK", "BERSERK": "TANK" },
