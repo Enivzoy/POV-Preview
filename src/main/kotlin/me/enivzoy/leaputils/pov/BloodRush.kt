@@ -24,8 +24,8 @@ object BloodRush : Module(
 ) {
 
     val bloodRushEnabled by BooleanSetting("Enabled", true, desc = "Enable Blood Rush auto-leap")
-    val delay by NumberSetting("Delay (ms)", 300, 0..2000, 50, desc = "Delay after the leap menu opens before leaping")
-    val schizoMode by BooleanSetting("Schizo Mode", false, desc = "Wait for any keypress in the leap menu before auto-leaping")
+    val delay by NumberSetting("Delay (ms)", 300, 0..2000, 50, desc = "Normal auto-leap delay; ignored in Schizo Mode")
+    val schizoMode by BooleanSetting("Schizo Mode", false, desc = "Use any leap-menu keypress to trigger the current target immediately")
 
     private var menuOpenedAt = 0L
     private var inLeapMenu = false
@@ -144,7 +144,7 @@ object BloodRush : Module(
             } catch (e: Exception) {
             }
             if (!isBloodRushActive()) return@on
-            if (now - menuOpenedAt < delay) return@on
+            if (!schizoMode && now - menuOpenedAt < delay) return@on
             if (schizoMode && !SchizoLeapInput.consumeKeyPress(screen)) return@on
 
             val target = OdinAccess.findClosestToWitherDoor() ?: return@on

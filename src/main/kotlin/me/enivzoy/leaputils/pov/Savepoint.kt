@@ -21,8 +21,8 @@ object Savepoint : Module(
     description = "Auto leap to correct people for F7/M7 phases"
 ) {
     val savepointEnabled by BooleanSetting("Enabled", true, desc = "")
-    val delay by NumberSetting("Delay", 250, 0..1000, 10, desc = "Delay after opening the leap menu")
-    val schizoMode by BooleanSetting("Schizo Mode", false, desc = "Wait for any keypress in the leap menu before auto-leaping")
+    val delay by NumberSetting("Delay", 250, 0..1000, 10, desc = "Normal auto-leap delay; ignored in Schizo Mode")
+    val schizoMode by BooleanSetting("Schizo Mode", false, desc = "Use any leap-menu keypress to trigger the current target immediately")
 
     val maxor by BooleanSetting("Maxor", true, desc = "")
     val maxorLeftClass by SelectorSetting("Leap if left", DungeonClass.BERSERK, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER))
@@ -239,7 +239,7 @@ object Savepoint : Module(
                 menuOpenedAt = now
                 println("[LeapUtils Savepoint] Phase changed: $phase (raw:${OdinAccess.bossPhase}) floor=${OdinAccess.floorName}")
             }
-            if (now - menuOpenedAt < delay) return@on
+            if (!schizoMode && now - menuOpenedAt < delay) return@on
             if (schizoMode && !SchizoLeapInput.consumeKeyPress(screen)) return@on
 
             val myClass = getMyClass()
