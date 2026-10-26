@@ -286,6 +286,7 @@ object Savepoint : Module(
         }
 
         ClientTickEvents.END_CLIENT_TICK.register {
+            GoldorTracker.tick()
             if (!migrationChecked) {
                 migrationChecked = true
                 migrateIfNeeded()

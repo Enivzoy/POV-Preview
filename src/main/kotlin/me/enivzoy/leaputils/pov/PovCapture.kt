@@ -334,6 +334,11 @@ object PovCapture {
             carried = null
 
             modelViewDepth = modelViewDepth()
+            if (window.width != feed.width || window.height != feed.height ||
+                gameRenderer.mainRenderTarget() !== feed) {
+                status[index] = "size"
+                return false
+            }
             renderStarted = true
             gameRenderer.renderLevel(deltaTracker)
             status[index] = how
@@ -598,11 +603,19 @@ object PovCapture {
         net.minecraft.client.renderer.LevelRenderer::class.java.getDeclaredField("targets").apply { isAccessible = true }
     }
 
+    private var lastFailMsg: String? = null
+    private var lastFailAt = 0L
+
     private fun fail(t: Throwable) {
         if (PovPreviews.disableOnError) {
             disabledForSession = true
             freeRequested = true
         }
+        val now = System.nanoTime()
+        val msg = t.toString()
+        if (msg == lastFailMsg && now - lastFailAt < 5_000_000_000L) return
+        lastFailMsg = msg
+        lastFailAt = now
         println("[LeapUtils] POV previews hit an error${if (PovPreviews.disableOnError) " and are off for this session" else ""}: $t")
         t.printStackTrace()
     }

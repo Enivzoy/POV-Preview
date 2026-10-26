@@ -5,6 +5,7 @@ import com.odtheking.odin.events.LevelEvent
 import com.odtheking.odin.events.MessageEvent
 import com.odtheking.odin.events.core.EventBus
 import com.odtheking.odin.events.core.on
+import com.odtheking.odin.utils.skyblock.dungeon.DungeonUtils
 
 object GoldorTracker {
 
@@ -29,6 +30,19 @@ object GoldorTracker {
     private val coreRegex = Regex("""^The Core entrance is opening!$""")
 
     private var lastObjectiveComplete = false
+    private var worldLoadPending = false
+    private var worldLoadAt = 0L
+
+    fun tick() {
+        if (worldLoadPending && System.currentTimeMillis() >= worldLoadAt) {
+            worldLoadPending = false
+            if (DungeonUtils.inDungeons && DungeonUtils.isFloor(7)) {
+                SpLog.info("goldor", "world load mid-run - kept section=$section t=$terminalsDone l=$leversDone d=$deviceDone")
+            } else {
+                reset("world load")
+            }
+        }
+    }
 
     fun reset(reason: String) {
         SpLog.info("goldor", "reset ($reason) was section=$section t=$terminalsDone l=$leversDone d=$deviceDone gate=$gateOpen")
@@ -112,7 +126,8 @@ object GoldorTracker {
             handle(message)
         }
         on<LevelEvent.Load> {
-            reset("world load")
+            worldLoadPending = true
+            worldLoadAt = System.currentTimeMillis() + 3000
         }
         on<FloorEnterEvent> {
             reset("floor enter")
