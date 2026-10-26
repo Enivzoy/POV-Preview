@@ -1,0 +1,25 @@
+{
+  "id": "adg",
+  "label": "Advanced Dungeons Guide",
+  "source": "USER_TO_PROVIDE",
+  "notes": [
+    "SEED DATA from public forum guides; replace with your own guide's leaps.",
+    "Unseeded leaps from the sources: Healer -> Archer after crush is confirmed (P2 GY), everyone -> Archer at the S1 gate, P5 leap to the player closest to the king.",
+    "Storm variant and P1 cells are not part of this preset; the guides say nothing about Maxor leaps.",
+    "Goldor terminal ownership numbering is guide-specific and is not encoded here; use landmarks or completion conds instead."
+  ],
+  "cells": {
+    "P2.GY.1": { "MAGE": "HEALER", "TANK": "HEALER", "BERSERK": "ARCHER" },
+    "P2.GY.2": { "HEALER": "MAGE" },
+    "P2.OLDPY.1": { "MAGE": "TODO_USER", "TANK": "TODO_USER", "BERSERK": "TODO_USER", "ARCHER": "TODO_USER", "HEALER": "TODO_USER" },
+    "P2.OLDPY.2": { "MAGE": "TODO_USER", "TANK": "TODO_USER", "BERSERK": "TODO_USER", "ARCHER": "TODO_USER", "HEALER": "TODO_USER" },
+    "P2.NEWPY.1": { "MAGE": "TODO_USER", "TANK": "TODO_USER", "BERSERK": "TODO_USER", "ARCHER": "TODO_USER", "HEALER": "TODO_USER" },
+    "P2.NEWPY.2": { "MAGE": "TODO_USER", "TANK": "TODO_USER", "BERSERK": "TODO_USER", "ARCHER": "TODO_USER", "HEALER": "TODO_USER" },
+    "P3.S1.1": { "HEALER": "BERSERK" },
+    "P3.S2.1": { "TANK": "BERSERK" },
+    "P4.1": { "*": "NEAREST" }
+  },
+  "conds": {
+    "P3.S1.1": { "subject": "TARGET", "mode": "NEAR", "landmark": "s1_gate", "radius": 6, "holdMs": 400 }
+  }
+}

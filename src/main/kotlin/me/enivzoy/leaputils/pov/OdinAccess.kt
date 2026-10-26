@@ -230,6 +230,8 @@ object OdinAccess {
         return best
     }
     
+    fun entityOf(teammate: DungeonPlayer): net.minecraft.world.entity.player.Player? = teammateEntity(teammate)
+
     private fun teammateEntity(teammate: DungeonPlayer): net.minecraft.world.entity.player.Player? {
         val mc = Minecraft.getInstance()
         val local = mc.player ?: return null
