@@ -51,7 +51,9 @@ object Savepoint : Module(
     private var waitKey: String? = null
     private var waitSince = 0L
     private var lastTrackerSection = 0
-    private var lastPhase: M7Phases? = null // this flah is also used for floor7 but not seperated since both floors have the same maps.
+    private var stablePhase = M7Phases.Unknown
+    private var pendingPhase: M7Phases? = null
+    private var pendingPhaseTicks = 0 // this flah is also used for floor7 but not seperated since both floors have the same maps.
     private var lastStatus: String? = null
     private var lastTraceKey = ""
     private var myClassCached: DungeonClass? = null
@@ -120,9 +122,42 @@ object Savepoint : Module(
     private val cellSettings = LinkedHashMap<String, SelectorSetting<SpTgt>>()
     private val cellProp: kotlin.reflect.KProperty<*> = ::dryRun
 
+    private fun cellDesc(stage: SpStage, step: Int, c: DungeonClass): String {
+        val where = when (stage) {
+            SpStage.P1_L -> "Maxor, left crystal"
+            SpStage.P1_R -> "Maxor, right crystal"
+            SpStage.P2_GY -> "Storm, graveyard route"
+            SpStage.P2_OLDPY -> "Storm, old purple to yellow route"
+            SpStage.P2_NEWPY -> "Storm, new purple to yellow route"
+            SpStage.P3_S1 -> "Goldor section 1"
+            SpStage.P3_S2 -> "Goldor section 2"
+            SpStage.P3_S3 -> "Goldor section 3"
+            SpStage.P3_S4 -> "Goldor section 4 (early necron / recore)"
+            SpStage.P4 -> "Necron phase"
+            SpStage.P5 -> "Wither King phase"
+        }
+        val what = when (stage) {
+            SpStage.P1_L, SpStage.P1_R -> "leap after your crystal is done"
+            SpStage.P2_GY, SpStage.P2_OLDPY, SpStage.P2_NEWPY ->
+                if (step == 1) "leap after the drop off" else "leap for the purple spotter"
+            SpStage.P3_S1 -> if (step == 1) "leap after your section 1 terminals" else "second section 1 leap (e.g. berserk leaping mage at 9 masks)"
+            SpStage.P3_S2 -> "leap after your section 2 terminal"
+            SpStage.P3_S3 -> if (step == 1) "leap after your section 3 terminal" else "core leap (in the ADG roleset this is also tank's mage leap after levers)"
+            SpStage.P3_S4 -> "section 4 leap / recore leap"
+            SpStage.P4 -> "leap during necron"
+            SpStage.P5 -> "leap during wither king"
+        }
+        val mode = when (stage) {
+            SpStage.P4 -> " Only used while Necron target mode is Class."
+            SpStage.P5 -> " Only used while P5 target mode is Class."
+            else -> ""
+        }
+        return "$where - $what. You are ${c.name.lowercase()}: pick who the menu should click, None disables this cell.$mode"
+    }
+
     private fun cell(stage: SpStage, step: Int, c: DungeonClass, vis: () -> Boolean): SelectorSetting<SpTgt> {
         val name = "${stage.id}/$step ${c.name}"
-        val setting = +SelectorSetting(name, SpTgt.NONE, desc = "When you are ${c.name.lowercase()}: leap target for ${stage.id} step $step", SpTgt.entries.toList()).withDependency(vis)
+        val setting = +SelectorSetting(name, SpTgt.NONE, desc = cellDesc(stage, step, c), SpTgt.entries.toList()).withDependency(vis)
         cellSettings[name] = setting
         cellList.add(CellEntry(setting, stage, step, c))
         return setting
@@ -259,9 +294,22 @@ object Savepoint : Module(
                 if (it.clazz != DungeonClass.EMPTY) it.clazz else null
             }
             val ph = runCatching { DungeonUtils.getF7Phase() }.getOrNull()
-            if (ph != null && ph != lastPhase) {
-                if (verboseLog) SpLog.info("phase", "$lastPhase -> $ph (section=${GoldorTracker.section})")
-                lastPhase = ph
+            if (ph != null) {
+                if (ph == stablePhase) {
+                    pendingPhase = null
+                    pendingPhaseTicks = 0
+                } else if (ph == pendingPhase) {
+                    pendingPhaseTicks++
+                    if (pendingPhaseTicks >= 6) {
+                        if (verboseLog) SpLog.info("phase", "$stablePhase -> $ph (section=${GoldorTracker.section})")
+                        stablePhase = ph
+                        pendingPhase = null
+                        pendingPhaseTicks = 0
+                    }
+                } else {
+                    pendingPhase = ph
+                    pendingPhaseTicks = 0
+                }
             }
             if (!runCatching { DungeonUtils.inBoss }.getOrDefault(false)) {
                 if (consumed.isNotEmpty()) resetFightState()
@@ -450,7 +498,7 @@ object Savepoint : Module(
         return rules
     }
 
-    private fun phase(): M7Phases = runCatching { DungeonUtils.getF7Phase() }.getOrDefault(M7Phases.Unknown)
+    private fun phase(): M7Phases = stablePhase
 
     private fun activeStages(): List<SpStage> = when (phase()) {
         M7Phases.P1 -> if (maxor) listOf(SpStage.P1_L, SpStage.P1_R) else emptyList()

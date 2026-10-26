@@ -3,6 +3,7 @@ package me.enivzoy.leaputils.pov
 import com.odtheking.odin.events.FloorEnterEvent
 import com.odtheking.odin.events.LevelEvent
 import com.odtheking.odin.events.MessageEvent
+import com.odtheking.odin.events.core.EventBus
 import com.odtheking.odin.events.core.on
 
 object GoldorTracker {
@@ -106,6 +107,7 @@ object GoldorTracker {
     }
 
     init {
+        EventBus.subscribe(this)
         on<MessageEvent.Chat> {
             handle(message)
         }
