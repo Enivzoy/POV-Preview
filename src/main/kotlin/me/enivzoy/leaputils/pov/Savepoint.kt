@@ -25,10 +25,10 @@ object Savepoint : Module(
     val schizoMode by BooleanSetting("Schizo Mode", false, desc = "Use any leap-menu keypress to trigger the current target immediately")
 
     val maxor by BooleanSetting("Maxor", true, desc = "")
-    val maxorLeftClass by SelectorSetting("Leap if left", DungeonClass.BERSERK, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER))
-    val maxorLeftTo by SelectorSetting("To left", DungeonClass.TANK, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER))
-    val maxorRightClass by SelectorSetting("Leap if right", DungeonClass.ARCHER, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER))
-    val maxorRightTo by SelectorSetting("To right", DungeonClass.HEALER, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER))
+    val maxorLeftClass by SelectorSetting("Leap if left", DungeonClass.BERSERK, desc = "Your class assigned to the left crystal route", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER))
+    val maxorLeftTo by SelectorSetting("To left", DungeonClass.TANK, desc = "Target class for the left crystal route", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER))
+    val maxorRightClass by SelectorSetting("Leap if right", DungeonClass.ARCHER, desc = "Your class assigned to the right crystal route", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER))
+    val maxorRightTo by SelectorSetting("To right", DungeonClass.HEALER, desc = "Target class for the right crystal route", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER))
 
     val storm by BooleanSetting("Storm", true, desc = "Run the Drop off and Purple Spotter leap sequence after Maxor")
     val dropOffSpotter by SelectorSetting("Drop off spotter", DungeonClass.BERSERK, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER))
@@ -50,7 +50,9 @@ object Savepoint : Module(
     private var menuOpenedAt = 0L
     private var inLeapMenu = false
     private var leapedThisMenu = false
-    private var maxorLeapedThisPhase = false
+    private var maxorLeftLeapedThisPhase = false
+    private var maxorRightLeapedThisPhase = false
+    private val usedTeammates = mutableSetOf<String>()
     private var sequenceStep = 0
     private var highestGoldorSection = 0
     private var lastPhaseKey = ""
@@ -61,7 +63,9 @@ object Savepoint : Module(
         inLeapMenu = false
         menuOpenedAt = 0
         leapedThisMenu = false
-        maxorLeapedThisPhase = false
+        maxorLeftLeapedThisPhase = false
+        maxorRightLeapedThisPhase = false
+        usedTeammates.clear()
         sequenceStep = 0
         highestGoldorSection = 0
         lastPhaseKey = ""
@@ -73,8 +77,20 @@ object Savepoint : Module(
         return if (p.clazz != DungeonClass.EMPTY) p.clazz else null
     }
 
-    private fun find(clazz: DungeonClass): DungeonPlayer? {
-        return OdinAccess.leapTeammates.firstOrNull { it.clazz == clazz && !it.isDead }
+    private fun nameKey(name: String): String = name.trim().lowercase()
+
+    private fun find(clazz: DungeonClass, screen: AbstractContainerScreen<*>): DungeonPlayer? {
+        return OdinAccess.leapTeammates.firstOrNull {
+            it.clazz == clazz && !it.isDead && nameKey(it.name) !in usedTeammates && OdinAccess.isLeapAvailable(it, screen)
+        }
+    }
+
+    private data class MaxorRoute(val targetClass: DungeonClass, val label: String, val isLeft: Boolean)
+
+    private fun maxorRoute(myClass: DungeonClass): MaxorRoute? = when {
+        myClass == maxorLeftClass && !maxorLeftLeapedThisPhase -> MaxorRoute(maxorLeftTo, "Left Crystal", true)
+        myClass == maxorRightClass && !maxorRightLeapedThisPhase -> MaxorRoute(maxorRightTo, "Right Crystal", false)
+        else -> null
     }
 
     private fun isLeapScreen(screen: AbstractContainerScreen<*>): Boolean {
@@ -90,8 +106,7 @@ object Savepoint : Module(
         val phase = getPhase()
         val myClass = getMyClass()
         return when {
-            maxor && phase.contains("maxor") && !maxorLeapedThisPhase ->
-                myClass == maxorLeftClass || myClass == maxorRightClass
+            maxor && phase.contains("maxor") -> myClass?.let(::maxorRoute) != null
             storm && phase.contains("storm") -> true
             phase.contains("goldor") || phase.contains("p3") ->
                 soloCrush || (goldor && myClass == goldorIf)
@@ -111,26 +126,25 @@ object Savepoint : Module(
             warnMissing("${p.name} ($label) in the leap menu")
             return false
         }
+        usedTeammates += nameKey(p.name)
         leapedThisMenu = true
         println("[LeapUtils Savepoint] $label: leapt to ${p.name} (${p.clazz})")
         return true
     }
 
     private fun handleMaxor(myClass: DungeonClass, screen: AbstractContainerScreen<*>) {
-        if (maxorLeapedThisPhase) return
-        val to = when (myClass) {
-            maxorLeftClass -> maxorLeftTo
-            maxorRightClass -> maxorRightTo
-            else -> return
+        val route = maxorRoute(myClass) ?: return
+        val target = find(route.targetClass, screen)
+            ?: run { warnMissing("${route.label} target (${route.targetClass}) not yet used and available in the leap menu"); return }
+        if (leapTo(target, route.label, screen)) {
+            if (route.isLeft) maxorLeftLeapedThisPhase = true else maxorRightLeapedThisPhase = true
         }
-        val target = find(to) ?: run { warnMissing("Maxor target ($to)"); return }
-        if (leapTo(target, "Maxor", screen)) maxorLeapedThisPhase = true
     }
 
     private fun handleStorm(screen: AbstractContainerScreen<*>) {
         val to = if (sequenceStep == 0) dropOffSpotter else purpleSpotter
         val label = if (sequenceStep == 0) "Drop off Spotter" else "Purple Spotter"
-        val target = find(to) ?: run { warnMissing("$label target ($to)"); return }
+        val target = find(to, screen) ?: run { warnMissing("$label target ($to) not yet used and available in the leap menu"); return }
         if (leapTo(target, label, screen) && sequenceStep == 0) sequenceStep = 1
     }
 
@@ -147,20 +161,20 @@ object Savepoint : Module(
                     return
                 }
             }
-            val spotter = find(to) ?: run { warnMissing("$label target ($to)"); return }
+            val spotter = find(to, screen) ?: run { warnMissing("$label target ($to) not yet used and available in the leap menu"); return }
             if (leapTo(spotter, label, screen) && section == 3 && sequenceStep == 0) sequenceStep = 1
             return
         }
 
         if (goldor && myClass == goldorIf) {
-            val target = find(goldorTo) ?: run { warnMissing("Goldor target ($goldorTo)"); return }
+            val target = find(goldorTo, screen) ?: run { warnMissing("Goldor target ($goldorTo) not yet used and available in the leap menu"); return }
             leapTo(target, "Goldor", screen)
             return
         }
     }
 
     private fun handleNecron(screen: AbstractContainerScreen<*>) {
-        val target = OdinAccess.findClosestTeammateTo(54.0, 65.0, 76.0, screen)
+        val target = OdinAccess.findClosestTeammateTo(54.0, 65.0, 76.0, screen, usedTeammates)
             ?: run { warnMissing("a leapable teammate near the Necron spot (54, 65, 76)"); return }
         leapTo(target, "Necron", screen)
     }
@@ -233,7 +247,8 @@ object Savepoint : Module(
             if (key != lastPhaseKey) {
                 lastPhaseKey = key
                 sequenceStep = 0
-                maxorLeapedThisPhase = false
+                maxorLeftLeapedThisPhase = false
+                maxorRightLeapedThisPhase = false
                 loggedPhaseInfo = false
                 loggedMissing = false
                 menuOpenedAt = now
@@ -266,7 +281,9 @@ object Savepoint : Module(
             }
             if (!OdinAccess.inBoss) {
                 leapedThisMenu = false
-                maxorLeapedThisPhase = false
+                maxorLeftLeapedThisPhase = false
+                maxorRightLeapedThisPhase = false
+                usedTeammates.clear()
                 sequenceStep = 0
                 highestGoldorSection = 0
                 lastPhaseKey = ""

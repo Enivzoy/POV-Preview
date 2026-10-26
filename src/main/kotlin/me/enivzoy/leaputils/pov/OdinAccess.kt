@@ -184,9 +184,12 @@ object OdinAccess {
         return false
     }
 
+    fun isLeapAvailable(teammate: DungeonPlayer, screen: AbstractContainerScreen<*>): Boolean =
+        menuHasName(screen, teammate.name)
+
     fun autoLeapTo(teammate: DungeonPlayer, screen: AbstractContainerScreen<*>): Boolean {
         return try {
-            if (!menuHasName(screen, teammate.name)) return false
+            if (!isLeapAvailable(teammate, screen)) return false
             leapToMethod.invoke(leapMenuInstance, teammate.name, screen)
             true
         } catch (e: Exception) {
@@ -278,13 +281,15 @@ object OdinAccess {
         x: Double,
         y: Double,
         z: Double,
-        screen: AbstractContainerScreen<*>
+        screen: AbstractContainerScreen<*>,
+        excludedNames: Set<String> = emptySet()
     ): DungeonPlayer? {
         var closest: DungeonPlayer? = null
         var closestDistance = Double.MAX_VALUE
+        val excluded = excludedNames.mapTo(HashSet()) { it.lowercase() }
 
         for (teammate in leapTeammates) {
-            if (teammate.isDead || !menuHasName(screen, teammate.name)) continue
+            if (teammate.isDead || teammate.name.lowercase() in excluded || !isLeapAvailable(teammate, screen)) continue
             val entity = teammateEntity(teammate) ?: continue
             val dx = entity.x - x
             val dy = entity.y - y
