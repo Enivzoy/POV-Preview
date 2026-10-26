@@ -158,7 +158,9 @@ object Savepoint : Module(
                 }
             }
         }
-        for (c in SavepointEngine.LEAP_CLASSES) cell(SpStage.P3_S1, 1, c) { goldor && goldorS1 && (showAllClasses || myClassCached == c) }
+        for (step in 1..SpStage.P3_S1.steps) {
+            for (c in SavepointEngine.LEAP_CLASSES) cell(SpStage.P3_S1, step, c) { goldor && goldorS1 && (showAllClasses || myClassCached == c) }
+        }
         for (c in SavepointEngine.LEAP_CLASSES) cell(SpStage.P3_S2, 1, c) { goldor && goldorS2 && (showAllClasses || myClassCached == c) }
         for (step in 1..SpStage.P3_S3.steps) {
             for (c in SavepointEngine.LEAP_CLASSES) cell(SpStage.P3_S3, step, c) { goldor && goldorS3 && (showAllClasses || myClassCached == c) }
@@ -340,6 +342,7 @@ object Savepoint : Module(
     private fun applyPreset(preset: PresetFile) {
         var applied = 0
         var skipped = 0
+        for (e in cellList) e.setting.setValue(this, cellProp, SpTgt.NONE)
         for ((key, classMap) in preset.cells ?: emptyMap()) {
             val stage = SpStage.entries.sortedByDescending { it.id.length }.firstOrNull { key == it.id || key.startsWith("${it.id}.") }
             if (stage == null) {

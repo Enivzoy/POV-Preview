@@ -9,7 +9,7 @@ enum class SpStage(val id: String, val steps: Int) {
     P2_GY("P2.GY", 2),
     P2_OLDPY("P2.OLDPY", 2),
     P2_NEWPY("P2.NEWPY", 2),
-    P3_S1("P3.S1", 1),
+    P3_S1("P3.S1", 2),
     P3_S2("P3.S2", 1),
     P3_S3("P3.S3", 2),
     P3_S4("P3.S4", 1),
