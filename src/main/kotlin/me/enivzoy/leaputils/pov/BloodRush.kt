@@ -14,6 +14,7 @@ import com.odtheking.odin.utils.skyblock.dungeon.DungeonPlayer
 import com.odtheking.odin.utils.skyblock.dungeon.DungeonUtils
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents
 import net.minecraft.client.Minecraft
+import net.minecraft.client.gui.screens.Screen
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen
 
 object BloodRush : Module(
@@ -24,6 +25,7 @@ object BloodRush : Module(
 
     val bloodRushEnabled by BooleanSetting("Enabled", true, desc = "Enable Blood Rush auto-leap")
     val delay by NumberSetting("Delay (ms)", 300, 0..2000, 50, desc = "Delay after the leap menu opens before leaping")
+    val schizoMode by BooleanSetting("Schizo Mode", false, desc = "Wait for any keypress in the leap menu before auto-leaping")
 
     private var menuOpenedAt = 0L
     private var inLeapMenu = false
@@ -78,6 +80,13 @@ object BloodRush : Module(
         return title == "Spirit Leap" || title == "Teleport to Player"
     }
 
+    private fun shouldWaitForSchizoKeypress(screen: Screen): Boolean {
+        val container = screen as? AbstractContainerScreen<*> ?: return false
+        if (!enabled || !bloodRushEnabled || !schizoMode || leapedThisMenu || !isLeapMenu(container)) return false
+        val currentClass = getCurrentClass() ?: return false
+        return isValidClassForBloodRush(currentClass) && isBloodRushActive()
+    }
+
     private fun autoLeapTo(teammate: DungeonPlayer, screen: AbstractContainerScreen<*>): Boolean {
         if (!OdinAccess.autoLeapTo(teammate, screen)) return false
         println("[LeapUtils BloodRush] Auto-leaped to ${teammate.name} (${teammate.clazz}) for Blood Rush")
@@ -85,6 +94,8 @@ object BloodRush : Module(
     }
 
     init {
+        SchizoLeapInput.registerHandler(::shouldWaitForSchizoKeypress)
+
         on<ScreenEvent.Render>(EventPriority.HIGHEST + 100) {
             if (!enabled || !bloodRushEnabled) {
                 resetMenuState()
@@ -134,6 +145,7 @@ object BloodRush : Module(
             }
             if (!isBloodRushActive()) return@on
             if (now - menuOpenedAt < delay) return@on
+            if (schizoMode && !SchizoLeapInput.consumeKeyPress(screen)) return@on
 
             val target = OdinAccess.findClosestToWitherDoor() ?: return@on
             if (autoLeapTo(target, screen)) {

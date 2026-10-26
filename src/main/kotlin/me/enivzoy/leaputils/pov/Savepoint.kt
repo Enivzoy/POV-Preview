@@ -12,6 +12,7 @@ import com.odtheking.odin.utils.skyblock.dungeon.DungeonClass
 import com.odtheking.odin.utils.skyblock.dungeon.DungeonPlayer
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents
 import net.minecraft.client.Minecraft
+import net.minecraft.client.gui.screens.Screen
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen
 
 object Savepoint : Module(
@@ -21,6 +22,7 @@ object Savepoint : Module(
 ) {
     val savepointEnabled by BooleanSetting("Enabled", true, desc = "")
     val delay by NumberSetting("Delay", 250, 0..1000, 10, desc = "Delay after opening the leap menu")
+    val schizoMode by BooleanSetting("Schizo Mode", false, desc = "Wait for any keypress in the leap menu before auto-leaping")
 
     val maxor by BooleanSetting("Maxor", true, desc = "")
     val maxorLeftClass by SelectorSetting("Leap if left", DungeonClass.BERSERK, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER))
@@ -78,6 +80,24 @@ object Savepoint : Module(
     private fun isLeapScreen(screen: AbstractContainerScreen<*>): Boolean {
         val title = screen.title.string
         return title == "Spirit Leap" || title == "Teleport to Player" || title == "Obsidian"
+    }
+
+    private fun shouldWaitForSchizoKeypress(screen: Screen): Boolean {
+        val container = screen as? AbstractContainerScreen<*> ?: return false
+        if (!enabled || !savepointEnabled || !schizoMode || leapedThisMenu || !isLeapScreen(container)) return false
+        if (!OdinAccess.inBoss || !isF7()) return false
+
+        val phase = getPhase()
+        val myClass = getMyClass()
+        return when {
+            maxor && phase.contains("maxor") && !maxorLeapedThisPhase ->
+                myClass == maxorLeftClass || myClass == maxorRightClass
+            storm && phase.contains("storm") -> true
+            phase.contains("goldor") || phase.contains("p3") ->
+                soloCrush || (goldor && myClass == goldorIf)
+            necron && phase.contains("necron") -> true
+            else -> false
+        }
     }
 
     private fun warnMissing(what: String) {
@@ -178,6 +198,8 @@ object Savepoint : Module(
     }
 
     init {
+        SchizoLeapInput.registerHandler(::shouldWaitForSchizoKeypress)
+
         on<ScreenEvent.Render>(EventPriority.HIGHEST + 150) {
             if (!enabled || !savepointEnabled) {
                 inLeapMenu = false
@@ -218,6 +240,7 @@ object Savepoint : Module(
                 println("[LeapUtils Savepoint] Phase changed: $phase (raw:${OdinAccess.bossPhase}) floor=${OdinAccess.floorName}")
             }
             if (now - menuOpenedAt < delay) return@on
+            if (schizoMode && !SchizoLeapInput.consumeKeyPress(screen)) return@on
 
             val myClass = getMyClass()
             if (!loggedPhaseInfo) {
