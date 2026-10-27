@@ -104,7 +104,7 @@ object Savepoint : Module(
     val p5Landmark by StringSetting("P5 landmark", "", 24, "name", "Landmark used by Nearest mode; capture with /leaputils landmark <name>").withDependency { witherKing && p5TargetMode == TargetMode.NEAREST }
     val p5Radius by NumberSetting("P5 radius", 64, 2..128, 2, desc = "Max distance in blocks for Nearest mode").withDependency { witherKing && p5TargetMode == TargetMode.NEAREST }
 
-    val soloCrush by BooleanSetting("SoloCrush", true, desc = "Superseded by the Goldor section rows; kept for migration").hide()
+    val soloCrush by BooleanSetting("SoloCrush", true, desc = "Skip the purple spotter (mage) leap after predev and leap straight to the berserk waiting at the start of S1 instead")
     val section1Spotter by SelectorSetting("Section 1 Spotter", DungeonClass.BERSERK, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER)).hide()
     val section2Spotter by SelectorSetting("Section 2 Spotter", DungeonClass.MAGE, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER)).hide()
     val section3Spotter by SelectorSetting("Section 3 Spotter", DungeonClass.HEALER, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER)).hide()
@@ -140,7 +140,7 @@ object Savepoint : Module(
         val what = when (stage) {
             SpStage.P1_L, SpStage.P1_R -> "leap after your crystal is done"
             SpStage.P2_GY, SpStage.P2_OLDPY, SpStage.P2_NEWPY ->
-                if (step == 1) "leap after the drop off" else "leap for the purple spotter"
+                if (step == 1) "leap after the drop off" else "leap for the purple spotter (skipped for healer while SoloCrush is on)"
             SpStage.PREDEV -> "pre-dev leap to the teammate waiting at the start of Goldor section 1 (arms during Storm and while you are down in Goldor before the boss starts; during late Maxor the drop-off row handles the berserk at the py drop-off instead)"
             SpStage.P3_S1 -> if (step == 1) "leap after your section 1 terminals" else "second section 1 leap (e.g. berserk leaping mage at 9 masks)"
             SpStage.P3_S2 -> "leap after your section 2 terminal"
@@ -253,19 +253,19 @@ object Savepoint : Module(
             if (!schizoMode && now - menuOpenedAt < delay) return@on
             if (schizoMode && !SchizoLeapInput.consumeKeyPress(screen)) return@on
 
-            val stages = activeStages()
-            if (stages.isEmpty()) {
+            val steps = activeSteps()
+            if (steps.isEmpty()) {
                 val key = "E:${phase()}:${GoldorTracker.section}"
                 if (key != lastTraceKey) {
                     lastTraceKey = key
-                    if (verboseLog) SpLog.info("plan", "no stages armed phase=${phase()} section=${GoldorTracker.section}")
+                    if (verboseLog) SpLog.info("plan", "no steps armed phase=${phase()} section=${GoldorTracker.section}")
                 }
                 lastStatus = if (phase() == M7Phases.P3 && GoldorTracker.section == 0) "Waiting: Goldor section unknown" else null
                 return@on
             }
 
             val rules = buildRules()
-            val plan = SavepointEngine.decide(buildCtx(stages, screen), rules)
+            val plan = SavepointEngine.decide(buildCtx(steps, screen), rules)
             updateTimings(plan, now)
             lastStatus = when (plan) {
                 is SpPlan.Hold -> "Holding: ${plan.label}"
@@ -290,6 +290,8 @@ object Savepoint : Module(
 
         ClientTickEvents.END_CLIENT_TICK.register {
             GoldorTracker.tick()
+            val curScreen = runCatching { Minecraft.getInstance().gui.screen() }.getOrNull() as? AbstractContainerScreen<*>
+            if (inLeapMenu && (curScreen == null || !isLeapScreen(curScreen))) resetMenuState()
             if (!migrationChecked) {
                 migrationChecked = true
                 migrateIfNeeded()
@@ -349,7 +351,7 @@ object Savepoint : Module(
 
     private fun skipStep() {
         if (!enabled || !savepointEnabled || paused) return
-        val armed = SavepointEngine.armedStep(activeStages(), consumed, buildRules(), myClassCached) ?: return
+        val armed = SavepointEngine.armedStep(activeSteps(), consumed, buildRules(), myClassCached) ?: return
         consumed += armed
         holdKey = null
         waitKey = null
@@ -492,9 +494,10 @@ object Savepoint : Module(
     private fun buildRules(): Map<SpCell, SpRule> {
         val rules = HashMap<SpCell, SpRule>()
         for (e in cellList) {
-            val tgt = when (e.stage) {
-                SpStage.P4 -> if (necronTargetMode == TargetMode.NEAREST) SpTgt.NEAREST else e.setting.getValue(this, cellProp)
-                SpStage.P5 -> if (p5TargetMode == TargetMode.NEAREST) SpTgt.NEAREST else e.setting.getValue(this, cellProp)
+            val tgt = when {
+                soloCrush && e.stage == stormStage() && e.step == 2 && e.clazz == DungeonClass.HEALER -> SpTgt.NONE
+                e.stage == SpStage.P4 -> if (necronTargetMode == TargetMode.NEAREST) SpTgt.NEAREST else e.setting.getValue(this, cellProp)
+                e.stage == SpStage.P5 -> if (p5TargetMode == TargetMode.NEAREST) SpTgt.NEAREST else e.setting.getValue(this, cellProp)
                 else -> e.setting.getValue(this, cellProp)
             }
             if (tgt == SpTgt.NONE) continue
@@ -528,39 +531,44 @@ object Savepoint : Module(
         }
     }.getOrDefault(false)
 
-    private fun activeStages(): List<SpStage> = when (phase()) {
-        M7Phases.P1 -> {
-            val stages = mutableListOf<SpStage>()
-            if (maxor) {
-                stages.add(SpStage.P1_L)
-                stages.add(SpStage.P1_R)
+    private fun activeSteps(): List<SpStep> {
+        val raw = phase()
+        // pre-boss, your own drop-off descent reads P3/P4/P5 from the y-band; keep the storm window armed
+        val ph =
+            if (GoldorTracker.section == 0 && (raw == M7Phases.P3 || raw == M7Phases.P4 || raw == M7Phases.P5)) M7Phases.P2 else raw
+        return when (ph) {
+            M7Phases.P1 -> buildList {
+                if (maxor) {
+                    add(SpStep(SpStage.P1_L, 1))
+                    add(SpStep(SpStage.P1_R, 1))
+                }
+                if (storm && berserkDropped()) add(SpStep(stormStage(), 1))
             }
-            if (storm && berserkDropped()) stages.add(stormStage())
-            stages
-        }
-        M7Phases.P2 -> {
-            val stages = mutableListOf<SpStage>()
-            if (storm) stages.add(stormStage())
-            if (goldor && GoldorTracker.section == 0) stages.add(SpStage.PREDEV)
-            stages
-        }
-        M7Phases.P3 -> {
-            if (!goldor) {
-                emptyList()
-            } else {
-                when (GoldorTracker.section) {
-                    0 -> listOf(SpStage.PREDEV)
-                    1 -> if (goldorS1) listOf(SpStage.P3_S1) else emptyList()
-                    2 -> if (goldorS2) listOf(SpStage.P3_S2) else emptyList()
-                    3 -> if (goldorS3) listOf(SpStage.P3_S3) else emptyList()
-                    4 -> if (goldorS4) listOf(SpStage.P3_S4) else emptyList()
-                    else -> emptyList()
+            M7Phases.P2 -> buildList {
+                if (storm) {
+                    add(SpStep(stormStage(), 1))
+                    add(SpStep(stormStage(), 2))
+                }
+                if (goldor && GoldorTracker.section == 0) add(SpStep(SpStage.PREDEV, 1))
+            }
+            M7Phases.P3 -> {
+                if (!goldor) {
+                    emptyList()
+                } else {
+                    when (GoldorTracker.section) {
+                        0 -> listOf(SpStep(SpStage.PREDEV, 1))
+                        1 -> if (goldorS1) listOf(SpStep(SpStage.P3_S1, 1), SpStep(SpStage.P3_S1, 2)) else emptyList()
+                        2 -> if (goldorS2) listOf(SpStep(SpStage.P3_S2, 1)) else emptyList()
+                        3 -> if (goldorS3) listOf(SpStep(SpStage.P3_S3, 1), SpStep(SpStage.P3_S3, 2)) else emptyList()
+                        4 -> if (goldorS4) listOf(SpStep(SpStage.P3_S4, 1)) else emptyList()
+                        else -> emptyList()
+                    }
                 }
             }
+            M7Phases.P4 -> if (necron) listOf(SpStep(SpStage.P4, 1)) else emptyList()
+            M7Phases.P5 -> if (witherKing) listOf(SpStep(SpStage.P5, 1)) else emptyList()
+            M7Phases.Unknown -> emptyList()
         }
-        M7Phases.P4 -> if (necron) listOf(SpStage.P4) else emptyList()
-        M7Phases.P5 -> if (witherKing) listOf(SpStage.P5) else emptyList()
-        M7Phases.Unknown -> emptyList()
     }
 
     private fun floorOk(): Boolean {
@@ -572,7 +580,7 @@ object Savepoint : Module(
         }
     }
 
-    private fun buildCtx(stages: List<SpStage>, screen: AbstractContainerScreen<*>): SpCtx {
+    private fun buildCtx(steps: List<SpStep>, screen: AbstractContainerScreen<*>): SpCtx {
         val p = Minecraft.getInstance().player
         val myName = runCatching { DungeonUtils.currentDungeonPlayer?.name }.getOrNull()
         val tmates = runCatching { DungeonUtils.leapTeammates }.getOrDefault(emptyList())
@@ -581,7 +589,7 @@ object Savepoint : Module(
                 val e = OdinAccess.entityOf(t)
                 SpTmate(t.name, t.clazz, t.isDead, OdinAccess.isLeapAvailable(t, screen), e?.x, e?.y, e?.z)
             }
-        return SpCtx(stages, consumed, tmates, myClassCached, p?.x, p?.y, p?.z, timings, Landmarks.all)
+        return SpCtx(steps, consumed, tmates, myClassCached, p?.x, p?.y, p?.z, timings, Landmarks.all)
     }
 
     private fun updateTimings(plan: SpPlan, now: Long) {
@@ -683,11 +691,11 @@ object Savepoint : Module(
         if (!runCatching { DungeonUtils.inBoss }.getOrDefault(false)) return null
         if (!floorOk()) return null
         if (inLeapMenu) lastStatus?.let { return it }
-        val stages = activeStages()
-        if (stages.isEmpty()) return null
+        val steps = activeSteps()
+        if (steps.isEmpty()) return null
         val myClass = myClassCached ?: return null
         val rules = buildRules()
-        val armed = SavepointEngine.armedStep(stages, consumed, rules, myClass) ?: return null
+        val armed = SavepointEngine.armedStep(steps, consumed, rules, myClass) ?: return null
         val rule = rules[SpCell(armed.stage, armed.step, myClass)] ?: return null
         return "\u00a77Next: \u00a7f${rule.target.label} \u00a77(${armed.key})"
     }
@@ -698,7 +706,7 @@ object Savepoint : Module(
         if (!isLeapScreen(container)) return false
         if (!runCatching { DungeonUtils.inBoss }.getOrDefault(false)) return false
         if (!floorOk()) return false
-        return SavepointEngine.armedStep(activeStages(), consumed, buildRules(), myClassCached) != null
+        return SavepointEngine.armedStep(activeSteps(), consumed, buildRules(), myClassCached) != null
     }
 
     private fun isLeapScreen(screen: AbstractContainerScreen<*>): Boolean {

@@ -95,7 +95,7 @@ data class SpTmate(
 data class SpCell(val stage: SpStage, val step: Int, val clazz: DungeonClass)
 
 data class SpCtx(
-    val stages: List<SpStage>,
+    val steps: List<SpStep>,
     val consumed: Set<SpStep>,
     val teammates: List<SpTmate>,
     val myClass: DungeonClass?,
@@ -124,15 +124,12 @@ object SavepointEngine {
         DungeonClass.HEALER,
     )
 
-    fun armedStep(stages: List<SpStage>, consumed: Set<SpStep>, rules: Map<SpCell, SpRule>, myClass: DungeonClass?): SpStep? {
+    fun armedStep(steps: List<SpStep>, consumed: Set<SpStep>, rules: Map<SpCell, SpRule>, myClass: DungeonClass?): SpStep? {
         if (myClass == null) return null
-        for (stage in stages) {
-            for (step in 1..stage.steps) {
-                val sstep = SpStep(stage, step)
-                if (sstep in consumed) continue
-                val rule = rules[SpCell(stage, step, myClass)] ?: continue
-                if (rule.target != SpTgt.NONE) return sstep
-            }
+        for (sstep in steps) {
+            if (sstep in consumed) continue
+            val rule = rules[SpCell(sstep.stage, sstep.step, myClass)] ?: continue
+            if (rule.target != SpTgt.NONE) return sstep
         }
         return null
     }
@@ -140,57 +137,54 @@ object SavepointEngine {
     fun decide(ctx: SpCtx, rules: Map<SpCell, SpRule>): SpPlan {
         val myClass = ctx.myClass ?: return SpPlan.Wait(null, "your class is unknown")
 
-        for (stage in ctx.stages) {
-            for (step in 1..stage.steps) {
-                val sstep = SpStep(stage, step)
-                if (sstep in ctx.consumed) continue
-                val rule = rules[SpCell(stage, step, myClass)] ?: continue
-                if (rule.target == SpTgt.NONE) continue
+        for (sstep in ctx.steps) {
+            if (sstep in ctx.consumed) continue
+            val rule = rules[SpCell(sstep.stage, sstep.step, myClass)] ?: continue
+            if (rule.target == SpTgt.NONE) continue
 
-                val target = when (val res = resolve(rule, ctx)) {
-                    is Resolved.Found -> res.tm
-                    is Resolved.Missing -> return SpPlan.Wait(sstep, res.reason)
-                }
-                val label = "${stage.id} step $step -> ${target.name} (${target.clazz.name.lowercase()})"
-                val cond = rule.cond ?: return SpPlan.Leap(sstep, target, label)
-
-                val lm = ctx.landmarks[cond.landmark]
-                    ?: return SpPlan.Wait(sstep, "landmark '${cond.landmark}' is missing (add it with /leaputils landmark)")
-
-                val who: String
-                val px: Double?
-                val py: Double?
-                val pz: Double?
-                if (cond.subject == SpSubject.SELF) {
-                    who = "you"
-                    px = ctx.myX
-                    py = ctx.myY
-                    pz = ctx.myZ
-                } else {
-                    who = target.name
-                    px = target.x
-                    py = target.y
-                    pz = target.z
-                }
-                if (px == null || py == null || pz == null) {
-                    return fail(cond, sstep, "$who position unknown", ctx, target, label)
-                }
-
-                val dx = px - lm.x
-                val dy = py - lm.y
-                val dz = pz - lm.z
-                val dist = sqrt(dx * dx + dy * dy + dz * dz)
-                if (dist <= cond.effectiveRadius) {
-                    val key = "hold:${sstep.key}/${target.name}"
-                    val held = ctx.timings[key] ?: 0L
-                    return if (held >= cond.holdMs) {
-                        SpPlan.Leap(sstep, target, label)
-                    } else {
-                        SpPlan.Hold(sstep, target, key, cond.holdMs, held, "$label while ${cond.describe()}")
-                    }
-                }
-                return fail(cond, sstep, "${target.clazz.name.lowercase()} ${target.name} not ${cond.mode.label} '${cond.landmark}'", ctx, target, label)
+            val target = when (val res = resolve(rule, ctx)) {
+                is Resolved.Found -> res.tm
+                is Resolved.Missing -> return SpPlan.Wait(sstep, res.reason)
             }
+            val label = "${sstep.stage.id} step ${sstep.step} -> ${target.name} (${target.clazz.name.lowercase()})"
+            val cond = rule.cond ?: return SpPlan.Leap(sstep, target, label)
+
+            val lm = ctx.landmarks[cond.landmark]
+                ?: return SpPlan.Wait(sstep, "landmark '${cond.landmark}' is missing (add it with /leaputils landmark)")
+
+            val who: String
+            val px: Double?
+            val py: Double?
+            val pz: Double?
+            if (cond.subject == SpSubject.SELF) {
+                who = "you"
+                px = ctx.myX
+                py = ctx.myY
+                pz = ctx.myZ
+            } else {
+                who = target.name
+                px = target.x
+                py = target.y
+                pz = target.z
+            }
+            if (px == null || py == null || pz == null) {
+                return fail(cond, sstep, "$who position unknown", ctx, target, label)
+            }
+
+            val dx = px - lm.x
+            val dy = py - lm.y
+            val dz = pz - lm.z
+            val dist = sqrt(dx * dx + dy * dy + dz * dz)
+            if (dist <= cond.effectiveRadius) {
+                val key = "hold:${sstep.key}/${target.name}"
+                val held = ctx.timings[key] ?: 0L
+                return if (held >= cond.holdMs) {
+                    SpPlan.Leap(sstep, target, label)
+                } else {
+                    SpPlan.Hold(sstep, target, key, cond.holdMs, held, "$label while ${cond.describe()}")
+                }
+            }
+            return fail(cond, sstep, "${target.clazz.name.lowercase()} ${target.name} not ${cond.mode.label} '${cond.landmark}'", ctx, target, label)
         }
         return SpPlan.Idle
     }

@@ -25,7 +25,7 @@ class SavepointEngineTest {
     ) = SpTmate(name, clazz, dead, inMenu, x, y, z)
 
     private fun ctx(
-        stages: List<SpStage> = listOf(SpStage.P2_GY),
+        steps: List<SpStep> = listOf(SpStep(SpStage.P2_GY, 1), SpStep(SpStage.P2_GY, 2)),
         consumed: Set<SpStep> = emptySet(),
         teammates: List<SpTmate> = listOf(tm("Alice", DungeonClass.HEALER)),
         myClass: DungeonClass? = DungeonClass.MAGE,
@@ -34,11 +34,11 @@ class SavepointEngineTest {
         myX: Double? = null,
         myY: Double? = null,
         myZ: Double? = null,
-    ) = SpCtx(stages, consumed, teammates, myClass, myX, myY, myZ, timings, landmarks)
+    ) = SpCtx(steps, consumed, teammates, myClass, myX, myY, myZ, timings, landmarks)
 
     @Test
     fun idleWhenNoStages() {
-        assertEquals(SpPlan.Idle, SavepointEngine.decide(ctx(stages = emptyList()), rules))
+        assertEquals(SpPlan.Idle, SavepointEngine.decide(ctx(steps = emptyList()), rules))
     }
 
     @Test
@@ -97,14 +97,14 @@ class SavepointEngineTest {
             tm("Far", DungeonClass.TANK, x = 100.0, y = 65.0, z = 76.0),
             tm("Near", DungeonClass.ARCHER, x = 55.0, y = 65.0, z = 76.0),
         )
-        val plan = SavepointEngine.decide(ctx(stages = listOf(SpStage.P4), teammates = teammates, landmarks = landmarks), rules)
+        val plan = SavepointEngine.decide(ctx(steps = listOf(SpStep(SpStage.P4, 1)), teammates = teammates, landmarks = landmarks), rules)
         assertIs<SpPlan.Leap>(plan)
         assertEquals("Near", plan.target.name)
     }
 
     @Test
     fun missingLandmarkWaits() {
-        val plan = SavepointEngine.decide(ctx(stages = listOf(SpStage.P4)), rules)
+        val plan = SavepointEngine.decide(ctx(steps = listOf(SpStep(SpStage.P4, 1))), rules)
         assertIs<SpPlan.Wait>(plan)
     }
 
@@ -115,7 +115,7 @@ class SavepointEngineTest {
         val limited = rules + mapOf(
             SpCell(SpStage.P4, 1, DungeonClass.MAGE) to SpRule(SpTgt.NEAREST, "necron_spot", 5.0)
         )
-        val plan = SavepointEngine.decide(ctx(stages = listOf(SpStage.P4), teammates = teammates, landmarks = landmarks), limited)
+        val plan = SavepointEngine.decide(ctx(steps = listOf(SpStep(SpStage.P4, 1)), teammates = teammates, landmarks = landmarks), limited)
         assertIs<SpPlan.Wait>(plan)
     }
 
@@ -130,7 +130,7 @@ class SavepointEngineTest {
         val landmarks = mapOf("s2_t2" to SpLandmark(0.0, 0.0, 0.0))
         val teammates = listOf(tm("Bob", DungeonClass.BERSERK, x = 3.0, y = 0.0, z = 0.0))
         val waiting = SavepointEngine.decide(
-            ctx(stages = listOf(SpStage.P3_S2), myClass = DungeonClass.TANK, teammates = teammates, landmarks = landmarks),
+            ctx(steps = listOf(SpStep(SpStage.P3_S2, 1)), myClass = DungeonClass.TANK, teammates = teammates, landmarks = landmarks),
             condRules
         )
         assertIs<SpPlan.Hold>(waiting)
@@ -138,7 +138,7 @@ class SavepointEngineTest {
 
         val held = SavepointEngine.decide(
             ctx(
-                stages = listOf(SpStage.P3_S2),
+                steps = listOf(SpStep(SpStage.P3_S2, 1)),
                 myClass = DungeonClass.TANK,
                 teammates = teammates,
                 landmarks = landmarks,
@@ -161,7 +161,7 @@ class SavepointEngineTest {
         val landmarks = mapOf("s2_t2" to SpLandmark(0.0, 0.0, 0.0))
         val teammates = listOf(tm("Bob", DungeonClass.BERSERK, x = 50.0, y = 0.0, z = 0.0))
         val plan = SavepointEngine.decide(
-            ctx(stages = listOf(SpStage.P3_S2), myClass = DungeonClass.TANK, teammates = teammates, landmarks = landmarks),
+            ctx(steps = listOf(SpStep(SpStage.P3_S2, 1)), myClass = DungeonClass.TANK, teammates = teammates, landmarks = landmarks),
             condRules
         )
         assertIs<SpPlan.Wait>(plan)
@@ -178,7 +178,7 @@ class SavepointEngineTest {
         val landmarks = mapOf("s2_t2" to SpLandmark(0.0, 0.0, 0.0))
         val teammates = listOf(tm("Bob", DungeonClass.BERSERK, x = 50.0, y = 0.0, z = 0.0))
         val plan = SavepointEngine.decide(
-            ctx(stages = listOf(SpStage.P3_S2), myClass = DungeonClass.TANK, teammates = teammates, landmarks = landmarks),
+            ctx(steps = listOf(SpStep(SpStage.P3_S2, 1)), myClass = DungeonClass.TANK, teammates = teammates, landmarks = landmarks),
             condRules
         )
         assertIs<SpPlan.SkipStep>(plan)
@@ -196,7 +196,7 @@ class SavepointEngineTest {
         val landmarks = mapOf("s2_t2" to SpLandmark(0.0, 0.0, 0.0))
         val teammates = listOf(tm("Bob", DungeonClass.BERSERK, x = 50.0, y = 0.0, z = 0.0))
         val base = { timings: Map<String, Long> ->
-            ctx(stages = listOf(SpStage.P3_S2), myClass = DungeonClass.TANK, teammates = teammates, landmarks = landmarks, timings = timings)
+            ctx(steps = listOf(SpStep(SpStage.P3_S2, 1)), myClass = DungeonClass.TANK, teammates = teammates, landmarks = landmarks, timings = timings)
         }
         assertIs<SpPlan.Wait>(SavepointEngine.decide(base(emptyMap()), condRules))
         assertIs<SpPlan.Leap>(SavepointEngine.decide(base(mapOf("wait:P3.S2/1" to 1000L)), condRules))
@@ -214,7 +214,7 @@ class SavepointEngineTest {
         val teammates = listOf(tm("Bob", DungeonClass.BERSERK))
         val at = SavepointEngine.decide(
             ctx(
-                stages = listOf(SpStage.P3_S1),
+                steps = listOf(SpStep(SpStage.P3_S1, 1)),
                 myClass = DungeonClass.HEALER,
                 teammates = teammates,
                 landmarks = landmarks,
@@ -226,7 +226,7 @@ class SavepointEngineTest {
 
         val away = SavepointEngine.decide(
             ctx(
-                stages = listOf(SpStage.P3_S1),
+                steps = listOf(SpStep(SpStage.P3_S1, 1)),
                 myClass = DungeonClass.HEALER,
                 teammates = teammates,
                 landmarks = landmarks,
@@ -239,12 +239,12 @@ class SavepointEngineTest {
 
     @Test
     fun armedStepFindsFirstArmed() {
-        assertEquals(SpStep(SpStage.P2_GY, 1), SavepointEngine.armedStep(listOf(SpStage.P2_GY), emptySet(), rules, DungeonClass.MAGE))
+        assertEquals(SpStep(SpStage.P2_GY, 1), SavepointEngine.armedStep(listOf(SpStep(SpStage.P2_GY, 1), SpStep(SpStage.P2_GY, 2)), emptySet(), rules, DungeonClass.MAGE))
         assertEquals(
             SpStep(SpStage.P2_GY, 2),
-            SavepointEngine.armedStep(listOf(SpStage.P2_GY), setOf(SpStep(SpStage.P2_GY, 1)), rules, DungeonClass.MAGE)
+            SavepointEngine.armedStep(listOf(SpStep(SpStage.P2_GY, 1), SpStep(SpStage.P2_GY, 2)), setOf(SpStep(SpStage.P2_GY, 1)), rules, DungeonClass.MAGE)
         )
-        assertNull(SavepointEngine.armedStep(listOf(SpStage.P2_GY), emptySet(), rules, DungeonClass.TANK))
-        assertNull(SavepointEngine.armedStep(listOf(SpStage.P2_GY), emptySet(), rules, null))
+        assertNull(SavepointEngine.armedStep(listOf(SpStep(SpStage.P2_GY, 1), SpStep(SpStage.P2_GY, 2)), emptySet(), rules, DungeonClass.TANK))
+        assertNull(SavepointEngine.armedStep(listOf(SpStep(SpStage.P2_GY, 1), SpStep(SpStage.P2_GY, 2)), emptySet(), rules, null))
     }
 }
