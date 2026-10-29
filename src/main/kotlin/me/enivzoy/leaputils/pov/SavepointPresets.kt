@@ -16,6 +16,12 @@ data class PresetCondJson(
     val anyAfterMs: Long? = null,
 )
 
+/** what a single step means - shown as the row label and the hover tooltip in the planner */
+data class PresetStepMeta(
+    val label: String? = null,
+    val desc: String? = null,
+)
+
 data class PresetFile(
     val id: String? = null,
     val label: String? = null,
@@ -23,6 +29,7 @@ data class PresetFile(
     val notes: List<String>? = null,
     val cells: Map<String, Map<String, String>>? = null,
     val conds: Map<String, PresetCondJson>? = null,
+    val stepMeta: Map<String, PresetStepMeta>? = null,
 )
 
 object SavepointPresets {
@@ -103,6 +110,22 @@ object SavepointPresets {
                 )
             }
             Files.writeString(condsFile, gson.toJson(json))
+        }
+    }
+
+    private val stepMetaFile: Path = dir.resolve("steplabels.json")
+    private val stepMetaType = object : TypeToken<LinkedHashMap<String, PresetStepMeta>>() {}.type
+
+    fun loadStepMeta(): Map<String, PresetStepMeta> = runCatching {
+        if (!Files.exists(stepMetaFile)) return emptyMap()
+        val read: LinkedHashMap<String, PresetStepMeta>? = gson.fromJson(Files.readString(stepMetaFile), stepMetaType)
+        read ?: emptyMap()
+    }.getOrDefault(emptyMap())
+
+    fun saveStepMeta(meta: Map<String, PresetStepMeta>) {
+        runCatching {
+            Files.createDirectories(dir)
+            Files.writeString(stepMetaFile, gson.toJson(meta))
         }
     }
 }

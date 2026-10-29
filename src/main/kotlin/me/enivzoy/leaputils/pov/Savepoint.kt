@@ -58,6 +58,7 @@ object Savepoint : Module(
     private var lastTraceKey = ""
     private var myClassCached: DungeonClass? = null
     private var presetConds: Map<String, SpCond> = emptyMap()
+    private var stepMeta: Map<String, PresetStepMeta> = emptyMap()
     private var confirmAt = 0L
 
     val savepointEnabled by BooleanSetting("Enabled", true, desc = "")
@@ -225,6 +226,7 @@ object Savepoint : Module(
         statusHud.enabled = true
         Landmarks.load()
         presetConds = SavepointPresets.loadConds()
+        stepMeta = SavepointPresets.loadStepMeta()
         SchizoLeapInput.registerHandler(::shouldWaitForSchizoKeypress)
         SpLog.session()
         SpLog.info("init", "settings: filter=$floorFilter delay=$delay schizo=$schizoMode dryRun=$dryRun variants=$stormVariant s1..s4=$goldorS1/$goldorS2/$goldorS3/$goldorS4 flags=$flagI4/$flagEarlyEntry/$flagMageCore landmarks=${Landmarks.all.keys.joinToString(",")}")
@@ -410,7 +412,12 @@ object Savepoint : Module(
     private fun applyPreset(preset: PresetFile) {
         var applied = 0
         var skipped = 0
-        for (e in cellList) e.setting.setValue(this, cellProp, SpTgt.NONE)
+        // only clear the stages this preset actually covers - cells in stages it doesn't
+        // mention (e.g. your P1 crystal leaps, P5) are yours and survive the load
+        val covered = (preset.cells ?: emptyMap()).keys.mapNotNull { key ->
+            SpStage.entries.sortedByDescending { it.id.length }.firstOrNull { key == it.id || key.startsWith("${it.id}.") }
+        }.toSet()
+        for (e in cellList) if (e.stage in covered) e.setting.setValue(this, cellProp, SpTgt.NONE)
         for ((key, classMap) in preset.cells ?: emptyMap()) {
             val stage = SpStage.entries.sortedByDescending { it.id.length }.firstOrNull { key == it.id || key.startsWith("${it.id}.") }
             if (stage == null) {
@@ -450,6 +457,9 @@ object Savepoint : Module(
         val conds = (preset.conds ?: emptyMap()).mapValues { (_, v) -> SavepointPresets.toCond(v) }
         presetConds = conds
         SavepointPresets.saveConds(conds)
+        val meta = preset.stepMeta ?: emptyMap()
+        stepMeta = meta
+        SavepointPresets.saveStepMeta(meta)
         SpLog.info("preset", "loaded ${preset.label ?: preset.id}: applied=$applied skipped=$skipped conds=${conds.entries.joinToString(", ") { "${it.key}=${it.value.describe()}" }}")
         modMessage("[Savepoint] loaded ${preset.label ?: preset.id}: $applied cells set, $skipped entries skipped, ${conds.size} conds")
     }
@@ -545,6 +555,10 @@ object Savepoint : Module(
     internal fun setCellValue(stage: SpStage, step: Int, clazz: DungeonClass, tgt: SpTgt) = setCell(stage, step, clazz, tgt)
 
     internal fun condLabel(stage: SpStage, step: Int): String? = presetConds["${stage.id}/$step"]?.describe()
+
+    internal fun stepLabel(stage: SpStage, step: Int): String? = stepMeta["${stage.id}.$step"]?.label
+
+    internal fun stepDesc(stage: SpStage, step: Int): String? = stepMeta["${stage.id}.$step"]?.desc
 
     internal fun exportPlanJson(): String {
         val cells = LinkedHashMap<String, MutableMap<String, String>>()

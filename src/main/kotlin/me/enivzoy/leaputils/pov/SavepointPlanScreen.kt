@@ -10,6 +10,7 @@ import com.odtheking.odin.utils.render.roundedRect
 import com.odtheking.odin.utils.render.text
 import com.odtheking.odin.utils.skyblock.dungeon.DungeonClass
 import net.minecraft.client.Minecraft
+import net.minecraft.client.gui.Font
 import net.minecraft.client.gui.GuiGraphicsExtractor
 import net.minecraft.client.gui.screens.Screen
 import net.minecraft.client.input.MouseButtonEvent
@@ -25,11 +26,15 @@ import kotlin.math.roundToInt
  *
  * Layout is immediate-mode: every frame the render pass draws the blocks and records clickable regions,
  * and mouse clicks replay those regions - no widget tree, no state to keep in sync. Overlay panels (help /
- * nearest settings) draw after the blocks, so their regions win the reversed click check.
+ * nearest settings) and tooltips draw after the blocks, so their regions win the reversed click check.
  */
 class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
 
-    private class Region(val x0: Int, val y0: Int, val x1: Int, val y1: Int, val action: (Int) -> Unit) {
+    private class Region(
+        val x0: Int, val y0: Int, val x1: Int, val y1: Int,
+        val action: (Int) -> Unit,
+        val tooltip: List<String>? = null,
+    ) {
         fun contains(px: Double, py: Double): Boolean = px >= x0 && px < x1 && py >= y0 && py < y1
     }
 
@@ -41,6 +46,8 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
     private var armedLoadId: String? = null
     private var armedLoadAt = 0L
     private var panel: String? = null // "help" | "near" | null
+    private var helpScroll = 0f
+    private var helpContentH = 0
 
     override fun isPauseScreen(): Boolean = false
 
@@ -50,6 +57,11 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
     }
 
     override fun mouseScrolled(mouseX: Double, mouseY: Double, horizontalAmount: Double, verticalAmount: Double): Boolean {
+        if (panel == "help") {
+            val maxS = (helpContentH - helpViewH()).coerceAtLeast(0)
+            helpScroll = (helpScroll - (verticalAmount * 40.0).toFloat()).coerceIn(0f, maxS.toFloat())
+            return true
+        }
         if (panel != null) return true
         val maxScroll = (contentHeight - viewHeight()).coerceAtLeast(0)
         scrollTarget = (scrollTarget - (verticalAmount * 64.0).toFloat()).coerceIn(0f, maxScroll.toFloat())
@@ -88,44 +100,53 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
 
         // row 1: plan actions
         var bx = width - MARGIN
-        for (btn in listOf("Done" to { close() }, "Import" to { Savepoint.importPlanFromClipboard() }, "Export" to { Savepoint.exportPlanToClipboard() })) {
-            val (label, action) = btn
+        for (btn in listOf(
+            Triple("Done", "close the planner and save your edits", { close() }),
+            Triple("Import", "replace your Custom matrix with the plan JSON currently in your clipboard", { Savepoint.importPlanFromClipboard() }),
+            Triple("Export", "copy your whole Custom plan (cells + conds) as JSON to the clipboard", { Savepoint.exportPlanToClipboard() }),
+        )) {
+            val (label, tip, action) = btn
             val w = font.width(label) + 14
             bx -= w
-            button(graphics, bx, 8, bx + w, 24, label, mouseX, mouseY) { action() }
+            button(graphics, bx, 8, bx + w, 24, label, mouseX, mouseY, tooltip = listOf("§f$label", "§7$tip")) { action() }
             bx -= 6
         }
 
         // row 2: preset loads + panels + chips mode (built right to left, shown left to right)
         var bx2 = width - MARGIN
-        // Help (rightmost)
         run {
             val w = font.width("Help") + 14
             bx2 -= w
-            button(graphics, bx2, 28, bx2 + w, 44, "Help", mouseX, mouseY) { panel = if (panel == "help") null else "help" }
+            button(graphics, bx2, 28, bx2 + w, 44, "Help", mouseX, mouseY,
+                tooltip = listOf("§fHelp", "§7how the planner works, in depth - scrollable")) { panel = if (panel == "help") null else "help" }
             bx2 -= 6
         }
-        // chips mode
         run {
             val label = if (Savepoint.plannerDepth) "chips: depth" else "chips: simple"
             val w = font.width(label) + 14
             bx2 -= w
-            button(graphics, bx2, 28, bx2 + w, 44, label, mouseX, mouseY) { Savepoint.plannerDepth = !Savepoint.plannerDepth }
+            button(graphics, bx2, 28, bx2 + w, 44, label, mouseX, mouseY,
+                tooltip = listOf("§fChips mode", "§7simple shortens names (§fB > n§7), depth spells them out (§fBerserk > Nearest§7)")) { Savepoint.plannerDepth = !Savepoint.plannerDepth }
             bx2 -= 6
         }
-        // Near settings
         run {
             val w = font.width("Near") + 14
             bx2 -= w
-            button(graphics, bx2, 28, bx2 + w, 44, "Near", mouseX, mouseY) { panel = if (panel == "near") null else "near" }
+            button(graphics, bx2, 28, bx2 + w, 44, "Near", mouseX, mouseY,
+                tooltip = listOf("§fNear settings", "§7landmark + radius for Nearest leaps, and the P4/P5 target mode")) { panel = if (panel == "near") null else "near" }
             bx2 -= 6
         }
-        // preset loads (double-press to confirm)
         for (id in listOf("mm7g", "adg")) {
             val label = if (armedLoadId == id) "Sure?" else "Load ${id.uppercase()}"
             val w = font.width(label) + 14
             bx2 -= w
-            button(graphics, bx2, 28, bx2 + w, 44, label, mouseX, mouseY, danger = armedLoadId == id) {
+            button(graphics, bx2, 28, bx2 + w, 44, label, mouseX, mouseY, danger = armedLoadId == id,
+                tooltip = listOf(
+                    "§fLoad ${id.uppercase()}",
+                    "§7copies the ${id.uppercase()} guide preset into your Custom matrix",
+                    "§7overwrites every stage the preset covers - your other cells survive",
+                    "§7press twice within 5s to confirm",
+                )) {
                 if (armedLoadId == id) {
                     armedLoadId = null
                     val err = Savepoint.loadPresetIntoCustom(id)
@@ -145,18 +166,16 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
         val top = HEADER_Y - scroll.roundToInt()
         var y = top
         val blockW = width - MARGIN * 2
-        val stepLabelW = 26
-        val chipW = (blockW - 12 - stepLabelW - 4 * (SavepointEngine.LEAP_CLASSES.size - 1)) / SavepointEngine.LEAP_CLASSES.size
+        val chipW = (blockW - 16 - 4 * (SavepointEngine.LEAP_CLASSES.size - 1)) / SavepointEngine.LEAP_CLASSES.size
 
         graphics.enableScissor(0, HEADER_Y, width, height - 20)
         for (stageInfo in Savepoint.planStages()) {
             val stage = stageInfo.stage
             var blockH = 20
-            for (step in 1..stage.steps) blockH += chipH + 6 + (if (Savepoint.condLabel(stage, step) != null) 10 else 0)
-            blockH += 4
+            for (step in 1..stage.steps) blockH += chipH + 19 + (if (Savepoint.condLabel(stage, step) != null) 10 else 0)
 
             val visible = y + blockH >= HEADER_Y && y <= height - 20
-            if (visible) drawBlock(graphics, stageInfo, MARGIN, y, blockW, blockH, chipW, stepLabelW, chipH, mouseX, mouseY)
+            if (visible) drawBlock(graphics, stageInfo, MARGIN, y, blockW, blockH, chipW, chipH, mouseX, mouseY)
             y += blockH + BLOCK_GAP
         }
         graphics.disableScissor()
@@ -164,7 +183,7 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
 
         // footer hint
         graphics.text(
-            "§7left-click a chip to cycle its target · right-click cycles back · Near = landmark settings · Help explains everything",
+            "§7hover anything for help · left-click a chip cycles its target · right-click cycles back",
             MARGIN, height - 14, Colors.MINECRAFT_DARK_GRAY
         )
 
@@ -173,11 +192,16 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
             "help" -> drawHelpPanel(graphics, mouseX, mouseY)
             "near" -> drawNearPanel(graphics, mouseX, mouseY)
         }
+
+        // ============================== tooltip ==============================
+        // drawn last so it sits over everything; topmost hovered region with a tooltip wins
+        val hovered = regions.reversed().firstOrNull { it.tooltip != null && it.contains(mouseX.toDouble(), mouseY.toDouble()) }
+        hovered?.let { drawTooltip(graphics, it.tooltip!!, mouseX, mouseY) }
     }
 
     private fun drawBlock(
         graphics: GuiGraphicsExtractor, info: Savepoint.PlanStageInfo,
-        x: Int, y: Int, w: Int, h: Int, chipW: Int, stepLabelW: Int, chipH: Int, mouseX: Int, mouseY: Int,
+        x: Int, y: Int, w: Int, h: Int, chipW: Int, chipH: Int, mouseX: Int, mouseY: Int,
     ) {
         val stage = info.stage
         graphics.roundedRect(x, y, x + w, y + h, GuiTheme.background.rgba, 3f)
@@ -189,17 +213,26 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
 
         var sy = y + 20
         for (step in 1..stage.steps) {
-            graphics.text("s$step", x + 8, sy + 5, Colors.MINECRAFT_GRAY)
-            var cx = x + 8 + stepLabelW
+            // step label line: "s1 · 1st crystal" - the preset explains what the moment is
+            val label = Savepoint.stepLabel(stage, step)
+            graphics.text("§8s$step" + (label?.let { " §7· §f$it" } ?: ""), x + 8, sy + 1, Colors.WHITE)
+            // the sN itself is hoverable too - same story the chips in this row carry
+            if (sy + 11 > HEADER_Y && sy < height - 20) regions.add(
+                Region(x + 4, sy, x + w - 4, sy + 11, action = { }, tooltip = stepTooltip(stage, step))
+            )
+            sy += 11
+
+            var cx = x + 8
             for (clazz in SavepointEngine.LEAP_CLASSES) {
                 chip(graphics, stage, step, clazz, cx, sy, chipW, chipH, mouseX, mouseY)
                 cx += chipW + 4
             }
-            sy += chipH + 6
+            sy += chipH + 4
             Savepoint.condLabel(stage, step)?.let {
-                graphics.text("§8⌐ if ${it.replace("'", "")}", x + 8 + stepLabelW, sy, Colors.MINECRAFT_DARK_GRAY)
+                graphics.text("§8⌐ if ${it.replace("'", "")}", x + 8, sy, Colors.MINECRAFT_DARK_GRAY)
                 sy += 10
             }
+            sy += 4
         }
     }
 
@@ -236,54 +269,186 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
         }
 
         // only clickable while inside the content area - clipped chips must not eat clicks meant for the header/footer
-        if (y + h > HEADER_Y && y < height - 20) regions.add(Region(x, y, x + w, y + h) { button ->
+        if (y + h > HEADER_Y && y < height - 20) regions.add(Region(x, y, x + w, y + h, action = { button ->
             val next = cycleTarget(tgt, back = button == 1, rowClass = clazz)
             if (next != tgt) Savepoint.setCellValue(stage, step, clazz, next)
-        })
+        }, tooltip = chipTooltip(stage, step, clazz, tgt)))
+    }
+
+    /** what a step means - label + description from the preset, or a fallback for steps it doesn't describe */
+    private fun stepTooltip(stage: SpStage, step: Int): List<String> {
+        val font = Minecraft.getInstance().font
+        val label = Savepoint.stepLabel(stage, step)
+        val tip = ArrayList<String>()
+        tip.add("§f${stage.id} · s$step" + (label?.let { " §7— §f$it" } ?: ""))
+        val desc = Savepoint.stepDesc(stage, step)
+        if (desc != null) tip.addAll(wrap("§7$desc", TOOLTIP_W, font))
+        else tip.add("§8this step isn't described in the preset - the chips below show who leaps where")
+        return tip
+    }
+
+    private fun chipTooltip(stage: SpStage, step: Int, clazz: DungeonClass, tgt: SpTgt): List<String> {
+        val tip = ArrayList(stepTooltip(stage, step))
+        val who = clazz.name.lowercase().replaceFirstChar(Char::uppercaseChar)
+        tip.add("")
+        tip.add(
+            when (tgt) {
+                SpTgt.NONE -> "§7$who does nothing this step"
+                SpTgt.NEAREST -> "§7$who leaps: §6Nearest§7 - whoever stands closest to the stage landmark"
+                SpTgt.FIRST -> "§7$who leaps: §bFirst§7 - first alive teammate in the leap menu order"
+                else -> "§7$who leaps: §f${tgt.label}"
+            }
+        )
+        tip.add("§8left-click cycle · right-click cycle back")
+        return tip
     }
 
     private fun button(
         graphics: GuiGraphicsExtractor, x0: Int, y0: Int, x1: Int, y1: Int,
-        label: String, mouseX: Int, mouseY: Int, danger: Boolean = false, action: () -> Unit,
+        label: String, mouseX: Int, mouseY: Int, danger: Boolean = false, tooltip: List<String>? = null, action: () -> Unit,
     ) {
-        buttonCycle(graphics, x0, y0, x1, y1, label, mouseX, mouseY, danger) { _ -> action() }
+        buttonCycle(graphics, x0, y0, x1, y1, label, mouseX, mouseY, danger, tooltip) { _ -> action() }
     }
 
     /** like [button] but the action receives the mouse button (0 = left, 1 = right) for cycling */
     private fun buttonCycle(
         graphics: GuiGraphicsExtractor, x0: Int, y0: Int, x1: Int, y1: Int,
-        label: String, mouseX: Int, mouseY: Int, danger: Boolean = false, action: (Int) -> Unit,
+        label: String, mouseX: Int, mouseY: Int, danger: Boolean = false, tooltip: List<String>? = null, action: (Int) -> Unit,
     ) {
         val hovered = mouseX >= x0 && mouseX < x1 && mouseY >= y0 && mouseY < y1
         val base = if (danger) Colors.MINECRAFT_DARK_RED else GuiTheme.surface
         graphics.roundedRect(x0, y0, x1, y1, if (hovered) base.hoverTint(0.25f) else base.rgba, 3f)
         val font = Minecraft.getInstance().font
         graphics.text(label, x0 + (x1 - x0 - font.width(label)) / 2, y0 + (y1 - y0 - font.lineHeight) / 2 + 1, Colors.WHITE)
-        regions.add(Region(x0, y0, x1, y1) { action(it) })
+        regions.add(Region(x0, y0, x1, y1, action = { action(it) }, tooltip = tooltip))
+    }
+
+    private fun drawTooltip(graphics: GuiGraphicsExtractor, lines: List<String>, mx: Int, my: Int) {
+        val font = Minecraft.getInstance().font
+        val w = lines.maxOf { font.width(it) } + 10
+        val h = lines.size * 10 + 6
+        var x = mx + 14
+        var y = my + 12
+        if (x + w > width - 4) x = mx - w - 8
+        if (y + h > height - 4) y = my - h - 8
+        graphics.roundedRect(x, y, x + w, y + h, Color(10, 10, 12, 0.96f).rgba, 3f)
+        lines.forEachIndexed { i, line -> graphics.text(line, x + 5, y + 4 + i * 10, Colors.WHITE) }
+    }
+
+    /** word-wraps [text] (may contain § codes) to [maxW] pixels */
+    private fun wrap(text: String, maxW: Int, font: Font): List<String> {
+        val lines = ArrayList<String>()
+        var cur = ""
+        for (word in text.split(" ")) {
+            val cand = if (cur.isEmpty()) word else "$cur $word"
+            if (font.width(cand) > maxW && cur.isNotEmpty()) {
+                lines.add(cur)
+                cur = word
+            } else cur = cand
+        }
+        if (cur.isNotEmpty()) lines.add(cur)
+        return lines
     }
 
     // ============================== help panel ==============================
 
+    private fun helpLines(): List<String> = listOf(
+        "§l§fWhat this is",
+        "§7This planner edits your §fCustom§7 leap plan - the one Savepoint actually runs in game.",
+        "§7ADG and MM7G are guide presets: load one into Custom with the header buttons. They",
+        "§7auto-update from GitHub every time Minecraft loads, so route fixes reach you for free.",
+        "",
+        "§l§fStage blocks",
+        "§7Each block is a fight phase, top to bottom in fight order: Maxor left/right crystals, the",
+        "§7active Storm route variant, predev, Goldor S1-S4, Necron and Wither King. The dot next to",
+        "§7the title shows whether that phase is enabled in the module settings (§a●§7 on, §8○§7 off).",
+        "",
+        "§l§fSteps (s1, s2, ...)",
+        "§7The rows inside a block are the leap moments of that phase, in order - a timeline. When",
+        "§7the fight reaches moment s3, everyone with a target on s3 leaps. A chip set to §fnone§7 just",
+        "§7sits that moment out: your class jumps straight to the next row where it has a target, so",
+        "§7each class only leaps where it is supposed to. The text next to §fsN§7 names the moment,",
+        "§7written by the preset author - hover a chip in that row for the full story.",
+        "",
+        "§l§fChips",
+        "§7One chip per class per step. §fLeft-click§7 cycles the target forward, §fright-click§7 cycles",
+        "§7back, and your own class is skipped (you cannot leap to yourself). The chip color tells you",
+        "§7the target type at a glance.",
+        "",
+        "§l§fTarget types",
+        "§fclass name §7- leap that specific teammate (berserk, archer, mage, tank, healer).",
+        "§6Nearest §7- leap whoever stands closest to this stage's landmark. Set the landmark and",
+        "§7  radius in the §fNear§7 panel; capture spots with §f/leaputils landmark <name>§7.",
+        "§bFirst §7- leap the first alive, leapable teammate in the leap menu order.",
+        "§fnone §7- no leap on this step.",
+        "",
+        "§l§fConditions (the \"if\" lines)",
+        "§7A step with a condition only fires while the condition holds - e.g. the target standing",
+        "§7near a landmark, or after a delay. Presets ship without conds; add your own in Odin's",
+        "§7clickgui settings for now.",
+        "",
+        "§l§fNear panel",
+        "§7Per-stage landmark + radius for Nearest leaps, plus the P4/P5 target mode: §fnearest§7",
+        "§7makes every cell in that phase act as Nearest (it overrides the chips entirely), while",
+        "§fper-class§7 uses the chips exactly as configured.",
+        "",
+        "§l§fClipboard",
+        "§fExport§7 copies your whole Custom plan (cells + conds) as JSON. §fImport§7 replaces your",
+        "§7Custom matrix with whatever plan JSON is in the clipboard - paste a friend's plan or one",
+        "§7from the repo and you are running their route.",
+        "",
+        "§l§fPresets & updates",
+        "§fLoad ADG / MM7G§7 copies that guide into Custom (press twice within 5s to confirm). It",
+        "§7overwrites every stage the preset covers - stages it doesn't cover keep your cells,",
+        "§7so your own P1 crystal leaps and P5 setup survive a load. Both files are fetched from",
+        "§7GitHub on every title screen; §f/leaputils presets§7 forces a check on demand.",
+        "",
+        "§l§fGood to know",
+        "§7- the §fCustom Planner§7 button on the Minecraft title screen opens this planner",
+        "§7- §fDone§7 and §fESC§7 both close it and save your edits",
+        "§7- §fchips mode§7: simple shortens names (§fB > n§7), depth spells them out (§fBerserk > Nearest§7)",
+        "§7- hover literally anything - chips, buttons, settings - for a per-item explanation",
+    )
+
     private fun drawHelpPanel(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int) {
-        val lines = listOf(
-            "§fchips §7- left-click cycles a leap target, right-click cycles back; your own class is skipped",
-            "§ftargets §7- gold = Nearest (landmark), aqua = First (menu order), letters = that class",
-            "§fpresets §7- Load ADG / MM7G copies a guide into your matrix (press twice to confirm)",
-            "§fclipboard §7- Export copies your plan as JSON, Import replaces your matrix from the clipboard",
-            "§fnear §7- landmark + radius for Nearest leaps, and the P4/P5 target mode",
-            "§flandmarks §7- capture where you stand with /leaputils landmark <name>",
-            "§fchips mode §7- simple shortens names (B > n), depth spells them out (Berserk > Nearest)",
-            "§fupdates §7- presets auto-refresh from GitHub every time Minecraft loads",
-        )
-        overlayPanel(graphics, "§lSavepoint Planner - help", lines.size * 11 + 46) { px, py, pw ->
-            var ly = py + 30
-            for (line in lines) {
-                graphics.text(line, px + 14, ly, Colors.WHITE)
-                ly += 11
-            }
-            graphics.text("§8click anywhere to close", px + 14, ly + 6, Colors.MINECRAFT_DARK_GRAY)
+        val lines = helpLines()
+        val lineH = 10
+        helpContentH = lines.size * lineH
+        val pw = (width - MARGIN * 2).coerceAtMost(560)
+        val ph = (height - 100).coerceAtLeast(220)
+        val px = (width - pw) / 2
+        val py = (height - ph) / 2
+
+        graphics.fill(0, 0, width, height, Color(0, 0, 0, 0.55f).rgba)
+        regions.add(Region(0, 0, width, height, action = { panel = null }))
+
+        graphics.roundedRect(px, py, px + pw, py + ph, GuiTheme.background.rgba, 5f)
+        graphics.text("§lSavepoint Planner - help", px + 12, py + 9, Colors.WHITE)
+        graphics.text("§8scroll to read · click anywhere to close", px + pw - 12 - Minecraft.getInstance().font.width("scroll to read · click anywhere to close"), py + 10, Colors.MINECRAFT_DARK_GRAY)
+
+        val viewH = ph - 40
+        val maxS = (helpContentH - viewH).coerceAtLeast(0)
+        helpScroll = helpScroll.coerceIn(0f, maxS.toFloat())
+
+        graphics.enableScissor(px + 4, py + 26, px + pw - 4, py + ph - 8)
+        val font = Minecraft.getInstance().font
+        lines.forEachIndexed { i, line ->
+            val ly = py + 30 + i * lineH - helpScroll.roundToInt()
+            if (ly >= py + 26 - lineH && ly <= py + ph - 8) graphics.text(line, px + 14, ly, Colors.WHITE)
+        }
+        graphics.disableScissor()
+
+        if (maxS > 0) {
+            // slim scrollbar on the right edge of the panel
+            val trackH = viewH
+            val thumbH = (trackH * viewH / helpContentH).coerceAtLeast(12)
+            val thumbY = py + 28 + ((trackH - thumbH) * (helpScroll / maxS)).roundToInt()
+            graphics.fill(px + pw - 6, py + 28, px + pw - 4, py + 28 + trackH, Color(255, 255, 255, 0.08f).rgba)
+            graphics.fill(px + pw - 6, thumbY, px + pw - 4, thumbY + thumbH, Color(255, 255, 255, 0.35f).rgba)
         }
     }
+
+    private fun helpViewH(): Int = (height - 100).coerceAtLeast(220) - 40
 
     // ============================== near settings panel ==============================
 
@@ -335,7 +500,12 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
         if (mode != null) {
             val (current, set) = mode
             val text = if (current == Savepoint.TargetMode.NEAREST) "nearest" else "per-class"
-            buttonCycle(graphics, cx, y, cx + 88, y + 20, text, mouseX, mouseY) { _ ->
+            buttonCycle(graphics, cx, y, cx + 88, y + 20, text, mouseX, mouseY,
+                tooltip = listOf(
+                    "§fTarget mode",
+                    "§7nearest §7- every leap in this phase targets the landmark, ignoring the chips",
+                    "§7per-class §7- use the chips exactly as configured",
+                )) { _ ->
                 set(if (current == Savepoint.TargetMode.NEAREST) Savepoint.TargetMode.CLASS else Savepoint.TargetMode.NEAREST)
             }
             cx += 94
@@ -343,11 +513,17 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
         val (lm, setLm) = landmark
         val captured = lm.trim() in Landmarks.all.keys
         val shown = lm.trim().ifEmpty { "(none)" } + if (lm.trim().isNotEmpty() && !captured) " §8*" else ""
-        buttonCycle(graphics, cx, y, radX - 6, y + 20, shown, mouseX, mouseY) { btn ->
+        buttonCycle(graphics, cx, y, radX - 6, y + 20, shown, mouseX, mouseY,
+            tooltip = listOf(
+                "§fLandmark",
+                "§7where Nearest leaps look for teammates - cycles through every captured spot",
+                "§7left/right click both cycle; capture new ones with §f/leaputils landmark <name>",
+            )) { btn ->
             setLm(cycleLandmark(lm, btn))
         }
         val (rad, setRad) = radius
-        buttonCycle(graphics, radX, y, radX + radW, y + 20, "r $rad", mouseX, mouseY) { btn ->
+        buttonCycle(graphics, radX, y, radX + radW, y + 20, "r $rad", mouseX, mouseY,
+            tooltip = listOf("§fRadius", "§7max distance in blocks for Nearest leaps - click to step up, right-click to step down")) { btn ->
             setRad(cycleRadius(rad, btn))
         }
     }
@@ -362,7 +538,7 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
         val py = ((height - ph) / 2).coerceAtLeast(24)
 
         graphics.fill(0, 0, width, height, Color(0, 0, 0, 0.55f).rgba)
-        regions.add(Region(0, 0, width, height) { panel = null })
+        regions.add(Region(0, 0, width, height, action = { panel = null }))
 
         graphics.roundedRect(px, py, px + pw, py + ph, GuiTheme.background.rgba, 5f)
         graphics.text(title, px + 12, py + 9, Colors.WHITE)
@@ -426,5 +602,6 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
         private const val BLOCK_GAP = 8
         private const val CONFIRM_MS = 5_000L
         private const val SCROLL_SPEED = 16f // higher = snappier ease
+        private const val TOOLTIP_W = 190
     }
 }
