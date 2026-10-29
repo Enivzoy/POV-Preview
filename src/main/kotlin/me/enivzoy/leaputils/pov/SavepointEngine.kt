@@ -30,6 +30,7 @@ enum class SpTgt(val label: String) {
     TANK("Tank"),
     HEALER("Healer"),
     NEAREST("Nearest"),
+    FIRST("First"),
 }
 
 enum class SpSubject(val label: String) {
@@ -209,6 +210,7 @@ object SavepointEngine {
         when (rule.target) {
             SpTgt.NONE -> Resolved.Missing("no target")
             SpTgt.NEAREST -> {
+                if (rule.landmark.isBlank()) return Resolved.Missing("Nearest has no landmark configured for this stage (capture one with /leaputils landmark)")
                 val lm = ctx.landmarks[rule.landmark]
                     ?: return Resolved.Missing("landmark '${rule.landmark}' is missing (add it with /leaputils landmark)")
                 val cands = ctx.teammates.filter { !it.dead && it.inMenu && it.x != null }
@@ -220,6 +222,11 @@ object SavepointEngine {
                 } else {
                     Resolved.Found(best)
                 }
+            }
+            SpTgt.FIRST -> {
+                val cands = ctx.teammates.filter { !it.dead && it.inMenu }
+                if (cands.isEmpty()) Resolved.Missing("no leapable teammate in the menu")
+                else Resolved.Found(cands.first())
             }
             else -> {
                 val cls = when (rule.target) {

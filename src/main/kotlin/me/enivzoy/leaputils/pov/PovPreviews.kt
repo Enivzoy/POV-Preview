@@ -29,8 +29,8 @@ object PovPreviews : Module(
     )
 
     val resolution by NumberSetting(
-        "Resolution", 0.75f, 0.25..1.0, 0.05f,
-        desc = "Render scale of each feed, as a fraction of its quadrant. Lower is cheaper and softer."
+        "Resolution", 1.0f, 0.25..1.0, 0.05f,
+        desc = "Render scale of each feed, as a fraction of its quadrant. 1.0 is pixel-perfect; lower is cheaper and softer."
     )
 
     val recullTerrain by BooleanSetting(

@@ -1,0 +1,26 @@
+{
+  "id": "mm7g",
+  "label": "MasterMode 7 Guide",
+  "source": "USER_TO_PROVIDE",
+  "notes": [
+    "SEED DATA from public forum guides (M7 roles thread, 2023 role thread); replace with your own guide's leaps.",
+    "The 2023 role thread has Berserk padding yellow and different terminal splits; sources conflict by era.",
+    "Unseeded leaps from the sources: Healer -> Archer after crush is confirmed (P2 GY), everyone -> Archer at the S1 gate, P4 everyone -> Healer when Necron goes mid (2023, possibly stale), P5 leap to the player closest to the king.",
+    "P4 is seeded to the current Odin-style default: nearest teammate to the necron_spot landmark.",
+    "Goldor terminal ownership numbering is guide-specific and is not encoded here; use landmarks or completion conds instead."
+  ],
+  "cells": {
+    "P2.GY.1": { "MAGE": "HEALER", "TANK": "HEALER", "BERSERK": "ARCHER" },
+    "P2.GY.2": { "HEALER": "MAGE" },
+    "P2.OLDPY.1": { "MAGE": "TODO_USER", "TANK": "TODO_USER", "BERSERK": "TODO_USER", "ARCHER": "TODO_USER", "HEALER": "TODO_USER" },
+    "P2.OLDPY.2": { "MAGE": "TODO_USER", "TANK": "TODO_USER", "BERSERK": "TODO_USER", "ARCHER": "TODO_USER", "HEALER": "TODO_USER" },
+    "P2.NEWPY.1": { "MAGE": "TODO_USER", "TANK": "TODO_USER", "BERSERK": "TODO_USER", "ARCHER": "TODO_USER", "HEALER": "TODO_USER" },
+    "P2.NEWPY.2": { "MAGE": "TODO_USER", "TANK": "TODO_USER", "BERSERK": "TODO_USER", "ARCHER": "TODO_USER", "HEALER": "TODO_USER" },
+    "P3.S1.1": { "HEALER": "BERSERK" },
+    "P3.S2.1": { "TANK": "BERSERK" },
+    "P4.1": { "*": "NEAREST" }
+  },
+  "conds": {
+    "P3.S1.1": { "subject": "TARGET", "mode": "NEAR", "landmark": "s1_gate", "radius": 6, "holdMs": 400 }
+  }
+}

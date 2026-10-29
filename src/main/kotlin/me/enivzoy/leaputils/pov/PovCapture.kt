@@ -70,7 +70,6 @@ object PovCapture {
 
     private var standIn: Marker? = null
     private val seenAs = HashMap<String, java.util.UUID>()
-    private val groundCache = HashMap<String, Triple<Int, Int, Int>>()
 
     private val OUT_OF_RANGE = Vector4f(0x14 / 255f, 0x14 / 255f, 0x14 / 255f, 1f)
 
@@ -83,7 +82,6 @@ object PovCapture {
     fun onWorldChange() {
         freeRequested = true
         standIn = null
-        groundCache.clear()
         seenAs.clear()
         PovPose.reset()
     }
@@ -447,7 +445,7 @@ object PovCapture {
     }
 
     private fun mapStandIn(p: DungeonPlayer): Entity? {
-        if (!DungeonUtils.inDungeons || DungeonUtils.inBoss || p.isDead) return null
+        if (!DungeonUtils.inDungeons || p.isDead) return null
         val mapPos = p.mapPos
         if (mapPos.x == 0 && mapPos.z == 0) return null
         val mc = Minecraft.getInstance()
@@ -456,34 +454,31 @@ object PovCapture {
         val z = ((mapPos.z + 128) / 2.0 - DungeonScan.startY) * 32.0 / DungeonScan.roomGap - 200
         val blockX = Math.floor(x).toInt()
         val blockZ = Math.floor(z).toInt()
-        val cached = groundCache[p.name]
-        val y = if (cached != null && cached.first == blockX && cached.second == blockZ) cached.third
-        else groundY(level, blockX, blockZ).also { groundCache[p.name] = Triple(blockX, blockZ, it) }
+        val seedY = seenAs[p.name]?.let { PovPose.lastSeen(it)?.pose?.y?.toInt() }
+            ?: when {
+                GoldorTracker.section in 1..4 -> 112
+                GoldorTracker.section >= 5 -> 64
+                else -> 221
+            }
+        val y = bossGroundY(level, blockX, blockZ, seedY)
         return standIn(x, y.toDouble(), z, p.yaw, 0f)
     }
 
-    private fun groundY(level: Level, x: Int, z: Int): Int {
-        if (!level.isLoaded(BlockPos(x, DUNGEON_FLOOR_Y, z))) return DUNGEON_FLOOR_Y
+    private fun bossGroundY(level: Level, x: Int, z: Int, seedY: Int): Int {
+        if (!level.isLoaded(BlockPos(x, seedY, z))) return seedY
+        if (standable(level, x, seedY, z)) return seedY
+        for (d in 1..64) if (standable(level, x, seedY - d, z)) return seedY - d
+        for (d in 1..16) if (standable(level, x, seedY + d, z)) return seedY + d
+        return seedY
+    }
 
-        fun blocks(y: Int): Boolean {
-            val pos = BlockPos(x, y, z)
-            val state = level.getBlockState(pos)
-            return !state.isAir && state.isCollisionShapeFullBlock(level, pos)
-        }
-
-        fun standOn(y: Int): Boolean {
-            val state = level.getBlockState(BlockPos(x, y, z))
-            return !state.isAir && state.fluidState.isEmpty
-        }
-
-        for (distance in 0..FLOOR_RANGE) {
-            val candidates = if (distance == 0) intArrayOf(DUNGEON_FLOOR_Y)
-            else intArrayOf(DUNGEON_FLOOR_Y + distance, DUNGEON_FLOOR_Y - distance)
-            for (y in candidates) {
-                if (standOn(y - 1) && !blocks(y) && !blocks(y + 1)) return y
-            }
-        }
-        return DUNGEON_FLOOR_Y
+    private fun standable(level: Level, x: Int, y: Int, z: Int): Boolean {
+        val floor = level.getBlockState(BlockPos(x, y - 1, z))
+        if (floor.isAir || !floor.fluidState.isEmpty) return false
+        val at = level.getBlockState(BlockPos(x, y, z))
+        if (at.isAir) return true
+        if (at.isCollisionShapeFullBlock(level, BlockPos(x, y, z))) return false
+        return !level.getBlockState(BlockPos(x, y + 1, z)).isCollisionShapeFullBlock(level, BlockPos(x, y + 1, z))
     }
 
     private fun findByName(name: String): List<AbstractClientPlayer> =

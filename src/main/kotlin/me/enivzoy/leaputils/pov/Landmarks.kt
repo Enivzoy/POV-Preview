@@ -89,6 +89,38 @@ object LeapUtilsCommands {
                             )
                     )
                     .then(
+                        ClientCommands.literal("sgdt")
+                            .executes {
+                                EarlyEnter.toggleTestTimer()
+                                Command.SINGLE_SUCCESS
+                            }
+                    )
+                    .then(
+                        ClientCommands.literal("eereset")
+                            .executes {
+                                EarlyEnter.resetForCommand()
+                                Command.SINGLE_SUCCESS
+                            }
+                    )
+                    .then(
+                        ClientCommands.literal("plan")
+                            .executes {
+                                runCatching { Minecraft.getInstance().gui.setScreen(SavepointPlanScreen()) }
+                                    .onFailure { modMessage("[LeapUtils] couldn't open the planner: ${it.message}") }
+                                Command.SINGLE_SUCCESS
+                            }
+                    )
+                    .then(
+                        ClientCommands.literal("presets")
+                            .executes {
+                                modMessage("[LeapUtils] checking GitHub for preset updates...")
+                                val t = Thread { SavepointRemote.checkForUpdates(manual = true) }
+                                t.isDaemon = true
+                                t.start()
+                                Command.SINGLE_SUCCESS
+                            }
+                    )
+                    .then(
                         ClientCommands.literal("logs")
                             .executes {
                                 val folder: File = SpLog.dir.toFile()

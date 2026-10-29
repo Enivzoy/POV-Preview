@@ -1,0 +1,36 @@
+{
+  "id": "adg",
+  "label": "ADG 5/5 Legit Terminals (High EE3)",
+  "source": "ADG discord: 'How to create terminal roles' + 'Most Optimal 5/5 Legit Terminals (High EE3)'",
+  "notes": [
+    "Term roles assume double skip ss, no levers in S2 for tank (4bl instead) and a fast hee3.",
+    "S1: healer leaps arch after ss, archer leaps mage after skip ss 21, tank leaps mage after 43.",
+    "Bers S1 is a double leap in the guide (arch/tank to stack melody at 6, then mage at 9).",
+    "Step 1 leaps archer, step 2 leaps mage; if you skip the melody leap just open the menu once.",
+    "S2: healer/archer/berserk all leap tank after their term. Tank stays at hee3 for the healer, mage walks 53.",
+    "S3: healer leaps mage, archer preleaps healer (guide default when tank leaps to you or you get levers; otherwise leap mage manually), tank leaps archer then mage after levers (step 2), berserk leaps healer.",
+    "Mage does core and is the destination for everyone, so nobody else leaps for core in this roleset.",
+    "S4: tank leaps mage after both levers, healer leaps mage (implied by the mage premove note).",
+    "Archer and berserk recore leaps are not specified in the guide and are left blank; mage recore needs no leap.",
+    "P2 seeds are from an older public source, the terminal guide does not cover P1/P2.",
+    "PREDEV: healer leaps the berserk waiting at the start of S1 during Storm (pre-dev for i4); other classes left to the user.",
+    "No conds ship with this preset, add your own in the condition editor."
+  ],
+  "cells": {
+    "P2.GY.1": { "MAGE": "HEALER", "TANK": "HEALER", "BERSERK": "ARCHER" },
+    "P2.GY.2": { "HEALER": "MAGE" },
+    "P2.OLDPY.1": { "MAGE": "TODO_USER", "TANK": "TODO_USER", "BERSERK": "TODO_USER", "ARCHER": "TODO_USER", "HEALER": "TODO_USER" },
+    "P2.OLDPY.2": { "HEALER": "TODO_USER", "MAGE": "TODO_USER", "TANK": "TODO_USER", "BERSERK": "TODO_USER", "ARCHER": "TODO_USER" },
+    "P2.NEWPY.1": { "MAGE": "TODO_USER", "TANK": "TODO_USER", "BERSERK": "TODO_USER", "ARCHER": "TODO_USER", "HEALER": "TODO_USER" },
+    "P2.NEWPY.2": { "HEALER": "TODO_USER", "MAGE": "TODO_USER", "TANK": "TODO_USER", "BERSERK": "TODO_USER", "ARCHER": "TODO_USER" },
+    "PREDEV.1": { "HEALER": "BERSERK" },
+    "P3.S1.1": { "HEALER": "ARCHER", "ARCHER": "MAGE", "TANK": "MAGE", "BERSERK": "ARCHER" },
+    "P3.S1.2": { "BERSERK": "MAGE" },
+    "P3.S2.1": { "HEALER": "TANK", "ARCHER": "TANK", "BERSERK": "TANK" },
+    "P3.S3.1": { "HEALER": "MAGE", "ARCHER": "HEALER", "TANK": "ARCHER", "BERSERK": "HEALER" },
+    "P3.S3.2": { "TANK": "MAGE" },
+    "P3.S4.1": { "TANK": "MAGE", "HEALER": "MAGE", "ARCHER": "TODO_USER", "BERSERK": "TODO_USER" },
+    "P4.1": { "*": "NEAREST" }
+  },
+  "conds": {}
+}

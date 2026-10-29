@@ -71,6 +71,10 @@ object Savepoint : Module(
     val floorFilter by SelectorSetting("Floor filter", FloorFilter.BOTH, desc = "Which floors Savepoint runs on", listOf(FloorFilter.F7, FloorFilter.M7, FloorFilter.BOTH))
     val presetChoice by SelectorSetting("Preset", PresetChoice.CUSTOM, desc = "Guide presets are seeds; loading one overwrites the matrix after a confirm", listOf(PresetChoice.ADG, PresetChoice.MM7G, PresetChoice.CUSTOM))
     val loadPreset by ActionSetting("Load preset", "Writes the selected preset's cells into the matrix; press twice within 5s to confirm") { loadPresetAction() }
+    val presetRepoUrl by StringSetting("Preset repo URL", "https://raw.githubusercontent.com/Enivzoy/POV-Preview/LeapUtils", 160, "url", "GitHub repo the updater fetches ADG/MM7G presets from as raw files (checked once per launch at the title screen)")
+    val openPlanner by ActionSetting("Open planner", "Opens the block planner GUI - edits the Custom matrix; ADG/MM7G auto-update from the repo") { openPlannerScreen() }
+    val exportPlan by ActionSetting("Export plan to clipboard", "Copies your Custom matrix (cells + conds) as JSON") { exportPlanToClipboard() }
+    val importPlan by ActionSetting("Import plan from clipboard", "Reads a plan JSON from the clipboard into the Custom matrix") { importPlanFromClipboard() }
 
     val maxor by BooleanSetting("Maxor", true, desc = "P1 crystal leap rules")
     val maxorLeftClass by SelectorSetting("Leap if left", DungeonClass.BERSERK, desc = "Your class assigned to the left crystal route", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER)).hide()
@@ -82,6 +86,8 @@ object Savepoint : Module(
     val stormVariant by SelectorSetting("Storm variant", StormVariant.GY, desc = "Each variant owns its own leap rows", listOf(StormVariant.GY, StormVariant.OLD_PY, StormVariant.NEW_PY)).withDependency { storm }
     val dropOffSpotter by SelectorSetting("Drop off spotter", DungeonClass.BERSERK, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER)).hide()
     val purpleSpotter by SelectorSetting("Purple Spotter", DungeonClass.MAGE, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER)).hide()
+    val stormLandmark by StringSetting("Storm drop-off landmark", "py_dropoff", 24, "name", "Landmark used when a Storm drop-off cell targets Nearest; capture with /leaputils landmark <name>").withDependency { storm }
+    val stormRadius by NumberSetting("Storm radius", 64, 2..128, 2, desc = "Max distance in blocks for Storm Nearest mode").withDependency { storm }
 
     val goldor by BooleanSetting("Goldor", true, desc = "P3 section leap rules")
     val goldorS1 by BooleanSetting("Goldor S1", true, desc = "Section 1 leap rules").withDependency { goldor }
@@ -104,7 +110,7 @@ object Savepoint : Module(
     val p5Landmark by StringSetting("P5 landmark", "", 24, "name", "Landmark used by Nearest mode; capture with /leaputils landmark <name>").withDependency { witherKing && p5TargetMode == TargetMode.NEAREST }
     val p5Radius by NumberSetting("P5 radius", 64, 2..128, 2, desc = "Max distance in blocks for Nearest mode").withDependency { witherKing && p5TargetMode == TargetMode.NEAREST }
 
-    val soloCrush by BooleanSetting("SoloCrush", true, desc = "Skip the purple spotter (mage) leap after predev and leap straight to the berserk waiting at the start of S1 instead")
+    val soloCrush by BooleanSetting("SoloCrush", true, desc = "Skip the Purple Spotter (mage) leap after predev and leap straight to the berserk waiting at the start of S1 instead")
     val section1Spotter by SelectorSetting("Section 1 Spotter", DungeonClass.BERSERK, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER)).hide()
     val section2Spotter by SelectorSetting("Section 2 Spotter", DungeonClass.MAGE, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER)).hide()
     val section3Spotter by SelectorSetting("Section 3 Spotter", DungeonClass.HEALER, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER)).hide()
@@ -115,28 +121,34 @@ object Savepoint : Module(
     val captureLandmark by ActionSetting("Capture here", "Stores your current position under Landmark name") { captureHere() }
 
     private var legacyMigrated by BooleanSetting("Matrix migrated", false, desc = "").hide()
+    private var customSeeded by BooleanSetting("Custom seeded", false, desc = "").hide()
 
     private class CellEntry(val setting: SelectorSetting<SpTgt>, val stage: SpStage, val step: Int, val clazz: DungeonClass)
 
     private val cellList = mutableListOf<CellEntry>()
     private val cellSettings = LinkedHashMap<String, SelectorSetting<SpTgt>>()
     private val cellProp: kotlin.reflect.KProperty<*> = ::dryRun
+    //*
+    // Poorly made logging functionaility
+    // this isn't used in the code anywhere its purely for logging purposes.
+    // */
+    private fun stageTitle(stage: SpStage): String = when (stage) {
+        SpStage.P1_L -> "Maxor, left crystal"
+        SpStage.P1_R -> "Maxor, right crystal"
+        SpStage.P2_GY -> "Storm, graveyard route" // easter egg kek
+        SpStage.P2_OLDPY -> "Storm, old purple to yellow route"
+        SpStage.P2_NEWPY -> "Storm, new purple to yellow route"
+        SpStage.PREDEV -> "Storm / Goldor section 0, before the boss starts" // will account for pre-ministers soon
+        SpStage.P3_S1 -> "Goldor section 1"
+        SpStage.P3_S2 -> "Goldor section 2"
+        SpStage.P3_S3 -> "Goldor section 3"
+        SpStage.P3_S4 -> "Goldor section 4 (early necron / recore)"
+        SpStage.P4 -> "Necron phase"
+        SpStage.P5 -> "Wither King phase"
+    }
 
     private fun cellDesc(stage: SpStage, step: Int, c: DungeonClass): String {
-        val where = when (stage) {
-            SpStage.P1_L -> "Maxor, left crystal"
-            SpStage.P1_R -> "Maxor, right crystal"
-            SpStage.P2_GY -> "Storm, graveyard route"
-            SpStage.P2_OLDPY -> "Storm, old purple to yellow route"
-            SpStage.P2_NEWPY -> "Storm, new purple to yellow route"
-            SpStage.PREDEV -> "Storm / Goldor section 0, before the boss starts"
-            SpStage.P3_S1 -> "Goldor section 1"
-            SpStage.P3_S2 -> "Goldor section 2"
-            SpStage.P3_S3 -> "Goldor section 3"
-            SpStage.P3_S4 -> "Goldor section 4 (early necron / recore)"
-            SpStage.P4 -> "Necron phase"
-            SpStage.P5 -> "Wither King phase"
-        }
+        val where = stageTitle(stage)
         val what = when (stage) {
             SpStage.P1_L, SpStage.P1_R -> "leap after your crystal is done"
             SpStage.P2_GY, SpStage.P2_OLDPY, SpStage.P2_NEWPY ->
@@ -295,11 +307,12 @@ object Savepoint : Module(
             if (!migrationChecked) {
                 migrationChecked = true
                 migrateIfNeeded()
+                ensureCustomSeed()
             }
             myClassCached = runCatching { DungeonUtils.currentDungeonPlayer }.getOrNull()?.let {
                 if (it.clazz != DungeonClass.EMPTY) it.clazz else null
             }
-            val ph = runCatching { DungeonUtils.getF7Phase() }.getOrNull()
+            val ph = runCatching { DungeonUtils.getF7Phase() }.getOrNull() //pornhub
             if (ph != null) {
                 if (ph == stablePhase) {
                     pendingPhase = null
@@ -491,6 +504,116 @@ object Savepoint : Module(
         SpLog.info("cell", "predev seed: all classes -> BERSERK (pre-dev row was empty)")
     }
 
+    /** first run ever: the Custom matrix starts as a fill-in of the ADG config so the planner opens on something sane */
+    private fun ensureCustomSeed() {
+        if (customSeeded) return
+        customSeeded = true
+        if (cellList.any { it.setting.getValue(this, cellProp) != SpTgt.NONE }) return
+        val preset = SavepointPresets.load("adg") ?: run {
+            SpLog.warn("preset", "custom seed skipped: adg preset not found")
+            return
+        }
+        applyPreset(preset)
+        SpLog.info("preset", "custom matrix seeded from the adg preset (first run)")
+        modMessage("[Savepoint] your Custom plan was seeded from ADG - edit it in the planner (/leaputils plan)")
+    }
+
+    // ============================== planner facade (used by SavepointPlanScreen) ==============================
+
+    internal data class PlanStageInfo(val stage: SpStage, val title: String, val active: Boolean, val note: String?)
+
+    /** every stage block the planner shows, in fight order; storm shows only the active variant's block */
+    internal fun planStages(): List<PlanStageInfo> = listOf(
+        PlanStageInfo(SpStage.P1_L, stageTitle(SpStage.P1_L), maxor, null),
+        PlanStageInfo(SpStage.P1_R, stageTitle(SpStage.P1_R), maxor, null),
+        PlanStageInfo(stormStage(), "${stageTitle(stormStage())} (variant: ${stormVariant.name})", storm, null),
+        PlanStageInfo(SpStage.PREDEV, stageTitle(SpStage.PREDEV), goldor, null),
+        PlanStageInfo(SpStage.P3_S1, stageTitle(SpStage.P3_S1), goldor && goldorS1, null),
+        PlanStageInfo(SpStage.P3_S2, stageTitle(SpStage.P3_S2), goldor && goldorS2, null),
+        PlanStageInfo(SpStage.P3_S3, stageTitle(SpStage.P3_S3), goldor && goldorS3, null),
+        PlanStageInfo(SpStage.P3_S4, stageTitle(SpStage.P3_S4), goldor && goldorS4, null),
+        PlanStageInfo(SpStage.P4, stageTitle(SpStage.P4), necron,
+            "target mode: ${necronTargetMode.name.lowercase()}${if (necronTargetMode == TargetMode.NEAREST) " @ '${necronLandmark.trim()}'" else ""}"),
+        PlanStageInfo(SpStage.P5, stageTitle(SpStage.P5), witherKing,
+            "target mode: ${p5TargetMode.name.lowercase()}${if (p5TargetMode == TargetMode.NEAREST) " @ '${p5Landmark.trim()}'" else ""}"),
+    )
+
+    internal fun cellValue(stage: SpStage, step: Int, clazz: DungeonClass): SpTgt =
+        cellSettings["${stage.id}/$step ${clazz.name}"]?.getValue(this, cellProp) ?: SpTgt.NONE
+
+    internal fun setCellValue(stage: SpStage, step: Int, clazz: DungeonClass, tgt: SpTgt) = setCell(stage, step, clazz, tgt)
+
+    internal fun condLabel(stage: SpStage, step: Int): String? = presetConds["${stage.id}/$step"]?.describe()
+
+    internal fun exportPlanJson(): String {
+        val cells = LinkedHashMap<String, MutableMap<String, String>>()
+        for (e in cellList) {
+            val tgt = e.setting.getValue(this, cellProp)
+            if (tgt == SpTgt.NONE) continue
+            cells.getOrPut("${e.stage.id}/${e.step}") { LinkedHashMap() }[e.clazz.name] = tgt.name
+        }
+        val conds = presetConds.mapValues { (_, c) ->
+            PresetCondJson(c.subject.name, c.mode.name, c.landmark, c.radius, c.holdMs, c.anyAfterMs)
+        }
+        return SavepointPresets.toJson(
+            PresetFile(id = "custom", label = "Savepoint custom plan", source = "leaputils planner", cells = cells, conds = conds)
+        )
+    }
+
+    internal fun importPlanJson(json: String): String? {
+        val preset = SavepointPresets.fromJson(json) ?: return "clipboard is not a plan JSON"
+        if (preset.cells.isNullOrEmpty() && preset.conds.isNullOrEmpty()) return "plan JSON has no cells or conds"
+        applyPreset(preset)
+        return null
+    }
+
+    internal fun loadPresetIntoCustom(id: String): String? {
+        val preset = SavepointPresets.load(id) ?: return "preset '$id' not found (repo unreachable and no bundled copy)"
+        applyPreset(preset)
+        return null
+    }
+
+    /** "adg ✓5m ago  mm7g ✗bundled" style status for the planner header */
+    internal fun presetStatus(): String = SavepointRemote.PRESET_IDS.joinToString("   ") { id ->
+        val (exists, at) = SavepointPresets.remoteInfo(id) ?: (false to 0L)
+        val age = when {
+            at <= 0L -> "bundled"
+            else -> {
+                val mins = (System.currentTimeMillis() - at) / 60000
+                when {
+                    mins < 1 -> "just now"
+                    mins < 60 -> "${mins}m ago"
+                    mins < 1440 -> "${mins / 60}h ago"
+                    else -> "${mins / 1440}d ago"
+                }
+            }
+        }
+        "$id ${if (exists) "§a✓" else "§7"}$age§7"
+    }
+
+    private fun openPlannerScreen() {
+        runCatching { mc.gui.setScreen(SavepointPlanScreen()) }
+            .onFailure { modMessage("[Savepoint] couldn't open the planner: ${it.message}") }
+    }
+
+    internal fun exportPlanToClipboard() {
+        val json = exportPlanJson()
+        runCatching { mc.keyboardHandler.clipboard = json }
+            .onSuccess { modMessage("[Savepoint] plan copied to clipboard (${json.length} chars) - paste it somewhere safe") }
+            .onFailure { modMessage("[Savepoint] couldn't access the clipboard: ${it.message}") }
+    }
+
+    internal fun importPlanFromClipboard() {
+        val text = runCatching { mc.keyboardHandler.clipboard }.getOrDefault("")
+        if (text.isBlank()) {
+            modMessage("[Savepoint] clipboard is empty - copy a plan JSON first")
+            return
+        }
+        val err = importPlanJson(text)
+        if (err == null) modMessage("[Savepoint] §aplan imported§f from clipboard - matrix overwritten")
+        else modMessage("[Savepoint] §cimport failed§f: $err")
+    }
+
     private fun buildRules(): Map<SpCell, SpRule> {
         val rules = HashMap<SpCell, SpRule>()
         for (e in cellList) {
@@ -503,10 +626,12 @@ object Savepoint : Module(
             if (tgt == SpTgt.NONE) continue
             val cond = presetConds["${e.stage.id}/${e.step}"]
             val rule = when (tgt) {
-                SpTgt.NEAREST -> {
-                    val lm = if (e.stage == SpStage.P4) necronLandmark.trim() else p5Landmark.trim()
-                    val r = if (e.stage == SpStage.P4) necronRadius.toDouble() else p5Radius.toDouble()
-                    SpRule(tgt, lm, r, cond)
+                SpTgt.NEAREST -> when (e.stage) {
+                    SpStage.P4 -> SpRule(tgt, necronLandmark.trim(), necronRadius.toDouble(), cond)
+                    SpStage.P5 -> SpRule(tgt, p5Landmark.trim(), p5Radius.toDouble(), cond)
+                    SpStage.P2_GY, SpStage.P2_OLDPY, SpStage.P2_NEWPY -> SpRule(tgt, stormLandmark.trim(), stormRadius.toDouble(), cond)
+                    // other stages have no landmark home yet - the engine reports the missing config instead of guessing
+                    else -> SpRule(tgt, cond = cond)
                 }
                 else -> SpRule(tgt, cond = cond)
             }

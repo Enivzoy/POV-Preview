@@ -29,12 +29,49 @@ object SavepointPresets {
 
     private val gson: Gson = GsonBuilder().setPrettyPrinting().create()
     private val dir: Path = FabricLoader.getInstance().configDir.resolve("leaputils")
+    private val presetsDir: Path = dir.resolve("presets")
     private val condsFile: Path = dir.resolve("conds.json")
     private val condType = object : TypeToken<LinkedHashMap<String, PresetCondJson>>() {}.type
 
-    fun load(id: String): PresetFile? = runCatching {
+    /**
+     * The remote-cached copy wins over the bundled resource: the updater (SavepointRemote) refreshes these
+     * from the GitHub repo every launch, so a downloaded preset is always newer than the one baked into the jar.
+     */
+    fun load(id: String): PresetFile? = loadCached(id) ?: loadBundled(id)
+
+    private fun loadCached(id: String): PresetFile? = runCatching {
+        val p = presetsDir.resolve("$id.json")
+        if (!Files.exists(p)) return null
+        gson.fromJson(Files.readString(p), PresetFile::class.java)
+    }.getOrNull()
+
+    private fun loadBundled(id: String): PresetFile? = runCatching {
         val stream = SavepointPresets::class.java.classLoader.getResourceAsStream("assets/leaputils/presets/$id.json") ?: return null
         stream.bufferedReader().use { reader -> gson.fromJson(reader, PresetFile::class.java) }
+    }.getOrNull()
+
+    fun fromJson(json: String): PresetFile? = runCatching { gson.fromJson(json, PresetFile::class.java) }.getOrNull()
+
+    fun toJson(preset: PresetFile): String = gson.toJson(preset)
+
+    /**
+     * Writes a fetched remote preset into the cache dir.
+     * Returns (existed, changed) so the updater can tell "first download" from "update" from "unchanged".
+     */
+    fun saveRemote(id: String, content: String): Pair<Boolean, Boolean> = runCatching {
+        Files.createDirectories(presetsDir)
+        val p = presetsDir.resolve("$id.json")
+        val existed = Files.exists(p)
+        val changed = !existed || Files.readString(p) != content
+        if (changed) Files.writeString(p, content)
+        existed to changed
+    }.getOrDefault(false to false)
+
+    /** (exists on disk, last modified epoch ms) for the planner's preset status line */
+    fun remoteInfo(id: String): Pair<Boolean, Long>? = runCatching {
+        val p = presetsDir.resolve("$id.json")
+        if (!Files.exists(p)) null
+        else true to Files.getLastModifiedTime(p).toMillis()
     }.getOrNull()
 
     fun toCond(json: PresetCondJson): SpCond = SpCond(

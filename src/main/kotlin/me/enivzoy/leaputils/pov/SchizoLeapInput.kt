@@ -15,7 +15,9 @@ object SchizoLeapInput {
 
     init {
         ScreenEvents.AFTER_INIT.register { _, screen, _, _ ->
-            if (screen is AbstractContainerScreen<*> && isLeapMenu(screen)) {
+            // register the keypress tap for every container screen; each handler only claims the screens
+            // it actually cares about (savepoint: leap menus, earlyenter: the stats/gear screen it waits in)
+            if (screen is AbstractContainerScreen<*>) {
                 val shouldRegister = synchronized(lock) {
                     pendingPresses.remove(screen)
                     registeredScreens.put(screen, true) == null
@@ -40,12 +42,5 @@ object SchizoLeapInput {
 
     fun consumeKeyPress(screen: Screen): Boolean = synchronized(lock) {
         pendingPresses.remove(screen) == true
-    }
-
-    private fun isLeapMenu(screen: AbstractContainerScreen<*>): Boolean {
-        return when (screen.title.string) {
-            "Spirit Leap", "Teleport to Player", "Obsidian" -> true
-            else -> false
-        }
     }
 }
