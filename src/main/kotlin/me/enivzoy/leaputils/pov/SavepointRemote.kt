@@ -6,6 +6,7 @@ import com.odtheking.odin.events.core.on
 import com.odtheking.odin.utils.modMessage
 import net.fabricmc.loader.api.FabricLoader
 import net.minecraft.client.gui.screens.TitleScreen
+import java.net.InetAddress
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -23,8 +24,13 @@ object SavepointRemote {
 
     val PRESET_IDS = listOf("adg", "mm7g")
 
-    /** the one repo presets come from - deliberately not a setting, the updater points where the mod points */
-    private const val REPO_BASE = "https://raw.githubusercontent.com/Enivzoy/POV-Preview/LeapUtils"
+    /** the one repo presets come from - deliberately not a setting, the updater points where the mod points.
+     *  raw github first, then jsdelivr: same file, different CDN - raw is blocked/unstable on some networks
+     *  where browsers still get through (proxy/dns/cdn-rule differences between java and your browser). */
+    private val SOURCES = listOf(
+        "https://raw.githubusercontent.com/Enivzoy/POV-Preview/LeapUtils",
+        "https://cdn.jsdelivr.net/gh/Enivzoy/POV-Preview@LeapUtils",
+    )
 
     /** github's cdn deprioritizes/blocks generic java clients - identify ourselves properly */
     private val USER_AGENT: String = runCatching {
@@ -56,63 +62,76 @@ object SavepointRemote {
             .connectTimeout(Duration.ofSeconds(15))
             .build()
         try {
-            for (id in PRESET_IDS) fetchOne(client, REPO_BASE, id, manual)
+            for (id in PRESET_IDS) fetchOne(client, id, manual)
         } finally {
             runCatching { client.close() }
         }
     }
 
-    private fun fetchOne(client: HttpClient, base: String, id: String, manual: Boolean) {
-        val url = "$base/presets/$id.json"
+    private fun fetchOne(client: HttpClient, id: String, manual: Boolean) {
         var lastError: Exception? = null
-        for (attempt in 1..ATTEMPTS) {
-            try {
-                val request = HttpRequest.newBuilder(URI.create(url))
-                    .timeout(Duration.ofSeconds(30))
-                    .header("Accept", "application/json")
-                    .header("User-Agent", USER_AGENT)
-                    .GET()
-                    .build()
-                val body = client.send(request, HttpResponse.BodyHandlers.ofString()).body()
-                if (body.isNullOrBlank()) {
-                    SpLog.warn("presets", "$id: $url returned an empty body")
-                    if (manual) modMessage("[Savepoint] §c$id§f: $url returned nothing")
+        var lastUrl = ""
+        var loggedDns = false
+        for (pass in 1..PASSES) {
+            for (base in SOURCES) {
+                val url = "$base/presets/$id.json"
+                lastUrl = url
+                try {
+                    val request = HttpRequest.newBuilder(URI.create(url))
+                        .timeout(Duration.ofSeconds(30))
+                        .header("Accept", "application/json")
+                        .header("User-Agent", USER_AGENT)
+                        .GET()
+                        .build()
+                    val body = client.send(request, HttpResponse.BodyHandlers.ofString()).body()
+                    if (body.isNullOrBlank()) {
+                        SpLog.warn("presets", "$id: $url returned an empty body")
+                        if (manual) modMessage("[Savepoint] §c$id§f: $url returned nothing")
+                        return
+                    }
+                    // never cache something that isn't a valid preset - a broken push must not poison the loader
+                    val parsed = SavepointPresets.fromJson(body)
+                    if (parsed == null) {
+                        SpLog.warn("presets", "$id: $url is not a valid preset JSON, keeping the current copy")
+                        if (manual) modMessage("[Savepoint] §c$id§f: remote file is not valid preset JSON")
+                        return
+                    }
+                    val (existed, changed) = SavepointPresets.saveRemote(id, body)
+                    when {
+                        !existed -> {
+                            modMessage("[Savepoint] §a$id§f preset downloaded from GitHub §7($url)§f")
+                            SpLog.info("presets", "$id: first download from $url")
+                        }
+                        changed -> {
+                            modMessage("[Savepoint] §a$id§f preset was §lupdated§r§f on GitHub - the new version is saved")
+                            SpLog.info("presets", "$id: remote update detected and saved from $url")
+                        }
+                        else -> {
+                            SpLog.info("presets", "$id: remote matches the cached copy")
+                            if (manual) modMessage("[Savepoint] §a$id§f preset is up to date")
+                        }
+                    }
                     return
-                }
-                // never cache something that isn't a valid preset - a broken push must not poison the loader
-                val parsed = SavepointPresets.fromJson(body)
-                if (parsed == null) {
-                    SpLog.warn("presets", "$id: $url is not a valid preset JSON, keeping the current copy")
-                    if (manual) modMessage("[Savepoint] §c$id§f: remote file is not valid preset JSON")
-                    return
-                }
-                val (existed, changed) = SavepointPresets.saveRemote(id, body)
-                when {
-                    !existed -> {
-                        modMessage("[Savepoint] §a$id§f preset downloaded from GitHub §7($url)§f")
-                        SpLog.info("presets", "$id: first download from $url")
+                } catch (e: Exception) {
+                    lastError = e
+                    SpLog.warn("presets", "$id: $url failed (pass $pass/$PASSES): ${e.javaClass.simpleName}: ${e.message}")
+                    if (!loggedDns) {
+                        // first failure: log the resolved IPs - a poisoned/failed dns lookup explains a lot
+                        val host = runCatching { URI.create(url).host }.getOrDefault(url)
+                        val ips = runCatching { InetAddress.getAllByName(host).joinToString(", ") { it.hostAddress } }
+                            .getOrDefault("lookup failed")
+                        SpLog.warn("presets", "$id: dns $host -> $ips")
+                        loggedDns = true
                     }
-                    changed -> {
-                        modMessage("[Savepoint] §a$id§f preset was §lupdated§r§f on GitHub - the new version is saved")
-                        SpLog.info("presets", "$id: remote update detected and saved from $url")
-                    }
-                    else -> {
-                        SpLog.info("presets", "$id: remote matches the cached copy")
-                        if (manual) modMessage("[Savepoint] §a$id§f preset is up to date")
-                    }
+                    runCatching { Thread.sleep(RETRY_DELAY_MS) }
                 }
-                return
-            } catch (e: Exception) {
-                lastError = e
-                SpLog.warn("presets", "$id: attempt $attempt/$ATTEMPTS failed ($url): ${e.javaClass.simpleName}: ${e.message}")
-                if (attempt < ATTEMPTS) runCatching { Thread.sleep(RETRY_DELAY_MS) }
             }
         }
-        SpLog.warn("presets", "$id: update check failed ($url): ${lastError?.javaClass?.simpleName}: ${lastError?.message}")
-        if (manual) modMessage("[Savepoint] §c$id§f update check failed: ${lastError?.message ?: lastError?.javaClass?.simpleName ?: "unknown error"} - run §f/leaputils reload§f to try again")
+        SpLog.warn("presets", "$id: all ${SOURCES.size} sources x $PASSES passes failed, last: $lastUrl")
+        if (manual) modMessage("[Savepoint] §c$id§f update check failed: ${lastError?.message ?: lastError?.javaClass?.simpleName ?: "unknown error"} - github raw and jsdelivr both unreachable")
     }
 
-    /** github raw hiccups now and then - one automatic retry before giving up */
-    private const val ATTEMPTS = 2
+    /** github raw hiccups now and then - two passes over the source list before giving up */
+    private const val PASSES = 2
     private const val RETRY_DELAY_MS = 1_500L
 }
