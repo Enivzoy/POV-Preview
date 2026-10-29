@@ -22,6 +22,9 @@ object SavepointRemote {
 
     val PRESET_IDS = listOf("adg", "mm7g")
 
+    /** the one repo presets come from - deliberately not a setting, the updater points where the mod points */
+    private const val REPO_BASE = "https://raw.githubusercontent.com/Enivzoy/POV-Preview/LeapUtils"
+
     private var registered = false
     private var checkedThisSession = false
 
@@ -41,17 +44,12 @@ object SavepointRemote {
 
     /** fetches every preset as raw from the repo; manual=true also reports "up to date"/failures in chat */
     fun checkForUpdates(manual: Boolean = false) {
-        val base = Savepoint.presetRepoUrl.trim().trimEnd('/')
-        if (base.isBlank()) {
-            if (manual) modMessage("[Savepoint] §cno preset repo URL configured")
-            return
-        }
         val client = HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.NORMAL)
             .connectTimeout(Duration.ofSeconds(10))
             .build()
         try {
-            for (id in PRESET_IDS) fetchOne(client, base, id, manual)
+            for (id in PRESET_IDS) fetchOne(client, REPO_BASE, id, manual)
         } finally {
             runCatching { client.close() }
         }

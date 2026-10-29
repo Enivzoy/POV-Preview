@@ -72,7 +72,6 @@ object Savepoint : Module(
     val floorFilter by SelectorSetting("Floor filter", FloorFilter.BOTH, desc = "Which floors Savepoint runs on", listOf(FloorFilter.F7, FloorFilter.M7, FloorFilter.BOTH))
     val presetChoice by SelectorSetting("Preset", PresetChoice.CUSTOM, desc = "Guide presets are seeds; loading one overwrites the matrix after a confirm", listOf(PresetChoice.ADG, PresetChoice.MM7G, PresetChoice.CUSTOM))
     val loadPreset by ActionSetting("Load preset", "Writes the selected preset's cells into the matrix; press twice within 5s to confirm") { loadPresetAction() }
-    val presetRepoUrl by StringSetting("Preset repo URL", "https://raw.githubusercontent.com/Enivzoy/POV-Preview/LeapUtils", 160, "url", "GitHub repo the updater fetches ADG/MM7G presets from as raw files (checked once per launch at the title screen)")
     val openPlanner by ActionSetting("Open planner", "Opens the block planner GUI - edits the Custom matrix; ADG/MM7G auto-update from the repo") { openPlannerScreen() }
     val exportPlan by ActionSetting("Export plan to clipboard", "Copies your Custom matrix (cells + conds) as JSON") { exportPlanToClipboard() }
     val importPlan by ActionSetting("Import plan from clipboard", "Reads a plan JSON from the clipboard into the Custom matrix") { importPlanFromClipboard() }
@@ -462,6 +461,20 @@ object Savepoint : Module(
         SavepointPresets.saveStepMeta(meta)
         SpLog.info("preset", "loaded ${preset.label ?: preset.id}: applied=$applied skipped=$skipped conds=${conds.entries.joinToString(", ") { "${it.key}=${it.value.describe()}" }}")
         modMessage("[Savepoint] loaded ${preset.label ?: preset.id}: $applied cells set, $skipped entries skipped, ${conds.size} conds")
+    }
+
+    /** /leaputils reload: after the updater refreshed the cached presets, re-read conds + step labels from disk
+     *  so the planner picks up repo changes without a restart. Never touches your Custom cells - that's Load ADG's job. */
+    fun reloadPresetMeta() {
+        presetConds = SavepointPresets.loadConds()
+        val adg = SavepointPresets.load("adg")
+        val meta = adg?.stepMeta ?: emptyMap()
+        if (meta.isNotEmpty()) {
+            stepMeta = meta
+            SavepointPresets.saveStepMeta(meta)
+        }
+        SpLog.info("presets", "reload: conds=${presetConds.size} stepMeta=${stepMeta.size} from ${adg?.label ?: "cached adg"}")
+        modMessage("[Savepoint] reloaded: ${presetConds.size} conds, ${stepMeta.size} step labels refreshed")
     }
 
     private fun setCell(stage: SpStage, step: Int, clazz: DungeonClass, tgt: SpTgt) {

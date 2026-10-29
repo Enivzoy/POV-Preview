@@ -128,6 +128,19 @@ object LeapUtilsCommands {
                             }
                     )
                     .then(
+                        ClientCommands.literal("reload")
+                            .executes {
+                                modMessage("[LeapUtils] reloading presets (fetch + step labels, no restart)...")
+                                val t = Thread {
+                                    SavepointRemote.checkForUpdates(manual = true)
+                                    Savepoint.reloadPresetMeta()
+                                }
+                                t.isDaemon = true
+                                t.start()
+                                Command.SINGLE_SUCCESS
+                            }
+                    )
+                    .then(
                         ClientCommands.literal("logs")
                             .executes {
                                 val folder: File = SpLog.dir.toFile()
