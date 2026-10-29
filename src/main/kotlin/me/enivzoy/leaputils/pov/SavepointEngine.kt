@@ -4,17 +4,18 @@ import com.odtheking.odin.utils.skyblock.dungeon.DungeonClass
 import kotlin.math.sqrt
 
 enum class SpStage(val id: String, val steps: Int) {
-    P1("P1", 2),
+    P1("P1", 3),
     P2_GY("P2.GY", 5),
     P2_OLDPY("P2.OLDPY", 2),
     P2_NEWPY("P2.NEWPY", 2),
     PREDEV("PREDEV", 1),
+    P3_S1_ENTRY("P3.S1.ENTRY", 1),
     P3_S1("P3.S1", 2),
-    P3_S2("P3.S2", 1),
+    P3_S2("P3.S2", 2),
     P3_S3("P3.S3", 2),
-    P3_S4("P3.S4", 1),
-    P4("P4", 1),
-    P5("P5", 1),
+    P3_S4("P3.S4", 3),
+    P4("P4", 3),
+    P5("P5", 3),
 }
 
 data class SpStep(val stage: SpStage, val step: Int) {

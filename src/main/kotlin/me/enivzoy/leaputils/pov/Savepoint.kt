@@ -139,6 +139,7 @@ object Savepoint : Module(
         SpStage.P2_OLDPY -> "Storm, old purple to yellow route"
         SpStage.P2_NEWPY -> "Storm, new purple to yellow route"
         SpStage.PREDEV -> "Storm / Goldor section 0, before the boss starts" // will account for pre-ministers soon
+        SpStage.P3_S1_ENTRY -> "Goldor section 1 entry / Simon Says positioning"
         SpStage.P3_S1 -> "Goldor section 1"
         SpStage.P3_S2 -> "Goldor section 2"
         SpStage.P3_S3 -> "Goldor section 3"
@@ -150,15 +151,28 @@ object Savepoint : Module(
     private fun cellDesc(stage: SpStage, step: Int, c: DungeonClass): String {
         val where = stageTitle(stage)
         val what = when (stage) {
-            SpStage.P1 -> "leap when the crystal you grabbed is melted (step 1 = first wave, step 2 = second wave)"
+            SpStage.P1 -> when (step) {
+                1 -> "first Maxor crystal checkpoint: berserk to healer, archer to tank"
+                2 -> "second Maxor crystal checkpoint: berserk to healer, archer to tank"
+                else -> "after crystals: tank and archer leap to mage to finish Maxor"
+            }
             SpStage.P2_GY, SpStage.P2_OLDPY, SpStage.P2_NEWPY ->
-                if (step == 1) "leap at the py drop-off (reposition)" else "storm route step $step"
+                "storm route step $step (see the preset's POV notes)"
             SpStage.PREDEV -> "pre-dev leap to the teammate waiting at the start of Goldor section 1 (arms during Storm and while you are down in Goldor before the boss starts; during late Maxor the drop-off row handles the berserk at the py drop-off instead)"
+            SpStage.P3_S1_ENTRY -> "move to the Simon Says standing spot after Storm dies"
             SpStage.P3_S1 -> if (step == 1) "leap after your section 1 terminals" else "second section 1 leap (e.g. berserk leaping mage at 9 masks)"
-            SpStage.P3_S2 -> "leap after your section 2 terminal"
+            SpStage.P3_S2 -> if (step == 1) "S2 entry: tank leaps to berserk" else "after S2 terminals: leap to healer at ee3"
             SpStage.P3_S3 -> if (step == 1) "leap after your section 3 terminal" else "core leap (in the ADG roleset this is also tank's mage leap after levers)"
-            SpStage.P3_S4 -> "section 4 leap / recore leap"
-            SpStage.P4 -> "leap during necron"
+            SpStage.P3_S4 -> when (step) {
+                1 -> "section 4 entry: archer leaps to tank at terminal 1 when tank has S3 levers"
+                2 -> "after S4 terminals: archer and tank leap to mage"
+                else -> "after i4 / levers: berserk and healer leap to mage for recore"
+            }
+            SpStage.P4 -> when (step) {
+                1 -> "Necron drop: mage leaps to healer"
+                2 -> "70m fire phase: archer, berserk and tank leap to healer"
+                else -> "relic handoffs: healer/mage to berserk, tank to archer"
+            }
             SpStage.P5 -> "leap during wither king"
         }
         val mode = when (stage) {
@@ -195,6 +209,7 @@ object Savepoint : Module(
         for (c in SavepointEngine.LEAP_CLASSES) {
             cell(SpStage.P1, 1, c) { maxor && (showAllClasses || myClassCached == c) }
             cell(SpStage.P1, 2, c) { maxor && (showAllClasses || myClassCached == c) }
+            cell(SpStage.P1, 3, c) { maxor && (showAllClasses || myClassCached == c) }
         }
         for ((stage, variant) in listOf(
             SpStage.P2_GY to StormVariant.GY,
@@ -208,16 +223,25 @@ object Savepoint : Module(
             }
         }
         for (c in SavepointEngine.LEAP_CLASSES) cell(SpStage.PREDEV, 1, c) { goldor && (showAllClasses || myClassCached == c) }
+        for (c in SavepointEngine.LEAP_CLASSES) cell(SpStage.P3_S1_ENTRY, 1, c) { goldor && goldorS1 && (showAllClasses || myClassCached == c) }
         for (step in 1..SpStage.P3_S1.steps) {
             for (c in SavepointEngine.LEAP_CLASSES) cell(SpStage.P3_S1, step, c) { goldor && goldorS1 && (showAllClasses || myClassCached == c) }
         }
-        for (c in SavepointEngine.LEAP_CLASSES) cell(SpStage.P3_S2, 1, c) { goldor && goldorS2 && (showAllClasses || myClassCached == c) }
+        for (step in 1..SpStage.P3_S2.steps) {
+            for (c in SavepointEngine.LEAP_CLASSES) cell(SpStage.P3_S2, step, c) { goldor && goldorS2 && (showAllClasses || myClassCached == c) }
+        }
         for (step in 1..SpStage.P3_S3.steps) {
             for (c in SavepointEngine.LEAP_CLASSES) cell(SpStage.P3_S3, step, c) { goldor && goldorS3 && (showAllClasses || myClassCached == c) }
         }
-        for (c in SavepointEngine.LEAP_CLASSES) cell(SpStage.P3_S4, 1, c) { goldor && goldorS4 && (showAllClasses || myClassCached == c) }
-        for (c in SavepointEngine.LEAP_CLASSES) cell(SpStage.P4, 1, c) { necron && (showAllClasses || myClassCached == c) }
-        for (c in SavepointEngine.LEAP_CLASSES) cell(SpStage.P5, 1, c) { witherKing && (showAllClasses || myClassCached == c) }
+        for (step in 1..SpStage.P3_S4.steps) {
+            for (c in SavepointEngine.LEAP_CLASSES) cell(SpStage.P3_S4, step, c) { goldor && goldorS4 && (showAllClasses || myClassCached == c) }
+        }
+        for (step in 1..SpStage.P4.steps) {
+            for (c in SavepointEngine.LEAP_CLASSES) cell(SpStage.P4, step, c) { necron && (showAllClasses || myClassCached == c) }
+        }
+        for (step in 1..SpStage.P5.steps) {
+            for (c in SavepointEngine.LEAP_CLASSES) cell(SpStage.P5, step, c) { witherKing && (showAllClasses || myClassCached == c) }
+        }
     }
 
     init {
@@ -452,6 +476,11 @@ object Savepoint : Module(
                 }
             }
         }
+        if (preset.id == "adg") {
+            // ADG now has one explicit P5 leap (Mage -> Healer) and no generic
+            // Necron nearest leap; class mode is required for those matrix rows.
+            necronTargetMode = TargetMode.CLASS
+        }
         val conds = (preset.conds ?: emptyMap()).mapValues { (_, v) -> SavepointPresets.toCond(v) }
         presetConds = conds
         SavepointPresets.saveConds(conds)
@@ -483,50 +512,29 @@ object Savepoint : Module(
         SpLog.info("cell", "${stage.id}/$step ${clazz.name} -> $tgt")
     }
 
-    private fun DungeonClass.toTgt(): SpTgt = runCatching { SpTgt.valueOf(name) }.getOrDefault(SpTgt.NONE)
-
     private fun migrateIfNeeded() {
-        if (legacyMigrated) {
-            SpLog.info("migrate", "already migrated; skipping")
-        } else {
-            legacyMigrated = true
-            SpLog.info("migrate", "legacy: maxor crystal rows are now preset-driven (left=$maxorLeftClass right=$maxorRightClass not migrated); dropOff=$dropOffSpotter purple=$purpleSpotter soloCrush=$soloCrush s1=$section1Spotter s2=$section2Spotter s3=$section3Spotter core=$coreSpotter early=$earlyNecronSpotter goldorIf=$goldorIf goldorTo=$goldorTo")
-            for (v in listOf(SpStage.P2_GY, SpStage.P2_OLDPY, SpStage.P2_NEWPY)) {
-                for (c in SavepointEngine.LEAP_CLASSES) if (c != dropOffSpotter) setCell(v, 1, c, dropOffSpotter.toTgt())
-                for (c in SavepointEngine.LEAP_CLASSES) if (c != purpleSpotter) setCell(v, 2, c, purpleSpotter.toTgt())
-            }
-            if (soloCrush) {
-                for (c in SavepointEngine.LEAP_CLASSES) {
-                    if (c != section1Spotter) setCell(SpStage.P3_S1, 1, c, section1Spotter.toTgt())
-                    if (c != section2Spotter) setCell(SpStage.P3_S2, 1, c, section2Spotter.toTgt())
-                    if (c != section3Spotter) setCell(SpStage.P3_S3, 1, c, section3Spotter.toTgt())
-                    if (c != coreSpotter) setCell(SpStage.P3_S3, 2, c, coreSpotter.toTgt())
-                    if (c != earlyNecronSpotter) setCell(SpStage.P3_S4, 1, c, earlyNecronSpotter.toTgt())
-                }
-            } else {
-                for (s in listOf(SpStage.P3_S1, SpStage.P3_S2, SpStage.P3_S3, SpStage.P3_S4)) {
-                    setCell(s, 1, goldorIf, goldorTo.toTgt())
-                }
-            }
-            necronTargetMode = TargetMode.NEAREST
-            necronLandmark = "necron_spot"
-            for (c in SavepointEngine.LEAP_CLASSES) setCell(SpStage.P4, 1, c, SpTgt.NEAREST)
-            modMessage("[Savepoint] migrated your old leap settings into the rule matrix")
-        }
-        ensurePredevSeed()
-    }
-
-    private fun ensurePredevSeed() {
-        val untouched = SavepointEngine.LEAP_CLASSES.all {
-            cellSettings["${SpStage.PREDEV.id}/1 ${it.name}"]?.getValue(this, cellProp) == SpTgt.NONE
-        }
-        if (!untouched) return
-        for (c in SavepointEngine.LEAP_CLASSES) setCell(SpStage.PREDEV, 1, c, SpTgt.BERSERK)
-        SpLog.info("cell", "predev seed: all classes -> BERSERK (pre-dev row was empty)")
+        if (legacyMigrated) return
+        // Retire the old flat settings: they assigned one generic target to every
+        // class and prevented the current ADG preset from seeding an empty matrix.
+        legacyMigrated = true
+        SpLog.info("migrate", "retired legacy generic leap rows; current route is seeded from ADG")
     }
 
     /** first run ever: the Custom matrix starts as a fill-in of the ADG config so the planner opens on something sane */
     private fun ensureCustomSeed() {
+        // Older ADG seeds put Maxor's crystal rows at the top of P2.GY. Detect that
+        // exact legacy layout and move it into P1 so existing installs open correctly.
+        val misplacedCrystals = (1..SpStage.P1.steps).all { step ->
+            SavepointEngine.LEAP_CLASSES.all { cellValue(SpStage.P1, step, it) == SpTgt.NONE }
+        } && (1..2).any { step -> stepLabel(SpStage.P2_GY, step)?.contains("crystal", ignoreCase = true) == true }
+        if (misplacedCrystals) {
+            (SavepointPresets.loadBundled("adg") ?: SavepointPresets.load("adg"))?.let {
+                applyPreset(it)
+                customSeeded = true
+                modMessage("[Savepoint] migrated old ADG plan: Maxor crystals are now under P1")
+                return
+            }
+        }
         if (customSeeded) return
         customSeeded = true
         if (cellList.any { it.setting.getValue(this, cellProp) != SpTgt.NONE }) return
@@ -541,22 +549,43 @@ object Savepoint : Module(
 
     // ============================== planner facade (used by SavepointPlanScreen) ==============================
 
-    internal data class PlanStageInfo(val stage: SpStage, val title: String, val active: Boolean, val note: String?)
-
-    /** every stage block the planner shows, in fight order; storm shows only the active variant's block */
-    internal fun planStages(): List<PlanStageInfo> = listOf(
-        PlanStageInfo(SpStage.P1, stageTitle(SpStage.P1), maxor, null),
-        PlanStageInfo(stormStage(), "${stageTitle(stormStage())} (variant: ${stormVariant.name})", storm, null),
-        PlanStageInfo(SpStage.PREDEV, stageTitle(SpStage.PREDEV), goldor, null),
-        PlanStageInfo(SpStage.P3_S1, stageTitle(SpStage.P3_S1), goldor && goldorS1, null),
-        PlanStageInfo(SpStage.P3_S2, stageTitle(SpStage.P3_S2), goldor && goldorS2, null),
-        PlanStageInfo(SpStage.P3_S3, stageTitle(SpStage.P3_S3), goldor && goldorS3, null),
-        PlanStageInfo(SpStage.P3_S4, stageTitle(SpStage.P3_S4), goldor && goldorS4, null),
-        PlanStageInfo(SpStage.P4, stageTitle(SpStage.P4), necron,
-            "target mode: ${necronTargetMode.name.lowercase()}${if (necronTargetMode == TargetMode.NEAREST) " @ '${necronLandmark.trim()}'" else ""}"),
-        PlanStageInfo(SpStage.P5, stageTitle(SpStage.P5), witherKing,
-            "target mode: ${p5TargetMode.name.lowercase()}${if (p5TargetMode == TargetMode.NEAREST) " @ '${p5Landmark.trim()}'" else ""}"),
+    internal data class PlanStageInfo(
+        val stage: SpStage,
+        val title: String,
+        val active: Boolean,
+        val note: String?,
+        val steps: IntRange = 1..stage.steps,
     )
+
+    /** Every planner block follows the live encounter order; Storm cues are split at phase boundaries. */
+    internal fun planStages(): List<PlanStageInfo> = buildList {
+        add(PlanStageInfo(SpStage.P1, stageTitle(SpStage.P1), maxor, null))
+
+        val storm = stormStage()
+        val stormTitle = "${stageTitle(storm)} (variant: ${stormVariant.name})"
+        if (storm.steps > 0) {
+            add(PlanStageInfo(storm, "$stormTitle - drop-off", this@Savepoint.storm, null, 1..1))
+        }
+        add(PlanStageInfo(SpStage.PREDEV, stageTitle(SpStage.PREDEV), goldor, null))
+        if (stormVariant == StormVariant.GY) {
+            add(PlanStageInfo(storm, "$stormTitle - healer checkpoints acacia", this@Savepoint.storm, null, 2..2))
+            add(PlanStageInfo(storm, "$stormTitle - lightning / mage and tank to healer", this@Savepoint.storm, null, 3..3))
+            add(PlanStageInfo(storm, "$stormTitle - purple crush / healer to berserk", this@Savepoint.storm, null, 4..4))
+            add(PlanStageInfo(storm, "$stormTitle - enrage / yellow crush", this@Savepoint.storm, null, 5..5))
+        } else if (storm.steps > 1) {
+            add(PlanStageInfo(storm, stormTitle, this@Savepoint.storm, null, 2..storm.steps))
+        }
+
+        add(PlanStageInfo(SpStage.P3_S1_ENTRY, stageTitle(SpStage.P3_S1_ENTRY), goldor && goldorS1, null))
+        add(PlanStageInfo(SpStage.P3_S1, stageTitle(SpStage.P3_S1), goldor && goldorS1, null))
+        add(PlanStageInfo(SpStage.P3_S2, stageTitle(SpStage.P3_S2), goldor && goldorS2, null))
+        add(PlanStageInfo(SpStage.P3_S3, stageTitle(SpStage.P3_S3), goldor && goldorS3, null))
+        add(PlanStageInfo(SpStage.P3_S4, stageTitle(SpStage.P3_S4), goldor && goldorS4, null))
+        add(PlanStageInfo(SpStage.P4, stageTitle(SpStage.P4), necron,
+            "target mode: ${necronTargetMode.name.lowercase()}${if (necronTargetMode == TargetMode.NEAREST) " @ '${necronLandmark.trim()}'" else ""}"))
+        add(PlanStageInfo(SpStage.P5, stageTitle(SpStage.P5), witherKing,
+            "target mode: ${p5TargetMode.name.lowercase()}${if (p5TargetMode == TargetMode.NEAREST) " @ '${p5Landmark.trim()}'" else ""}"))
+    }
 
     internal fun cellValue(stage: SpStage, step: Int, clazz: DungeonClass): SpTgt =
         cellSettings["${stage.id}/$step ${clazz.name}"]?.getValue(this, cellProp) ?: SpTgt.NONE
@@ -698,10 +727,13 @@ object Savepoint : Module(
             }
             M7Phases.P2 -> buildList {
                 if (storm) {
-                    // arm every step of the active storm variant - deep routes use more than two
-                    for (s in 1..stormStage().steps) add(SpStep(stormStage(), s))
+                    // The initial drop-off cue precedes healer predev; the remaining cues follow it.
+                    add(SpStep(stormStage(), 1))
                 }
                 if (goldor && GoldorTracker.section == 0) add(SpStep(SpStage.PREDEV, 1))
+                if (storm) {
+                    for (s in 2..stormStage().steps) add(SpStep(stormStage(), s))
+                }
             }
             M7Phases.P3 -> {
                 if (!goldor) {
@@ -709,16 +741,16 @@ object Savepoint : Module(
                 } else {
                     when (GoldorTracker.section) {
                         0 -> listOf(SpStep(SpStage.PREDEV, 1))
-                        1 -> if (goldorS1) listOf(SpStep(SpStage.P3_S1, 1), SpStep(SpStage.P3_S1, 2)) else emptyList()
-                        2 -> if (goldorS2) listOf(SpStep(SpStage.P3_S2, 1)) else emptyList()
+                        1 -> if (goldorS1) listOf(SpStep(SpStage.P3_S1_ENTRY, 1), SpStep(SpStage.P3_S1, 1), SpStep(SpStage.P3_S1, 2)) else emptyList()
+                        2 -> if (goldorS2) (1..SpStage.P3_S2.steps).map { SpStep(SpStage.P3_S2, it) } else emptyList()
                         3 -> if (goldorS3) listOf(SpStep(SpStage.P3_S3, 1), SpStep(SpStage.P3_S3, 2)) else emptyList()
-                        4 -> if (goldorS4) listOf(SpStep(SpStage.P3_S4, 1)) else emptyList()
+                        4 -> if (goldorS4) (1..SpStage.P3_S4.steps).map { SpStep(SpStage.P3_S4, it) } else emptyList()
                         else -> emptyList()
                     }
                 }
             }
-            M7Phases.P4 -> if (necron) listOf(SpStep(SpStage.P4, 1)) else emptyList()
-            M7Phases.P5 -> if (witherKing) listOf(SpStep(SpStage.P5, 1)) else emptyList()
+            M7Phases.P4 -> if (necron) (1..SpStage.P4.steps).map { SpStep(SpStage.P4, it) } else emptyList()
+            M7Phases.P5 -> if (witherKing) (1..SpStage.P5.steps).map { SpStep(SpStage.P5, it) } else emptyList()
             M7Phases.Unknown -> emptyList()
         }
     }

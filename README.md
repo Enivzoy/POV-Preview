@@ -46,11 +46,11 @@ The core of it is a matrix: for every stage, every step in that stage and every 
 
 | Stage | Phase | What it covers |
 | --- | --- | --- |
-| P1.L / P1.R | Maxor | left and right crystal routes, one leap each |
-| P2.GY / P2.OLDPY / P2.NEWPY | Storm | drop off leap and purple spotter leap, seperate rows per route variant |
-| P3.S1 - P3.S4 | Goldor | one leap per section (S3 has two, the second one is the core leap) |
-| P4 | Necron | usually leap to whoever is closest to necron but useless now as imid exists in a competent enough party |
-| P5 | Wither King | same idea as P4, whoever is closest to a certain landmark |
+| P1 | Maxor | two crystal checkpoint waves, then tank and archer leap to mage to finish Maxor |
+| P2.GY / P2.OLDPY / P2.NEWPY | Storm | ordered route-specific setup, lightning, crush and transition rows |
+| P3.S1 - P3.S4 | Goldor | role-specific terminal transitions; S4 supports entry, post-terminal and recore leaps |
+| P4 | Necron | role-specific drop, 70m and relic handoff leaps; instamid remains a movement route |
+| P5 | Wither King | optional landmark or per-class rules |
 
 Only stages you toggled on and that match the current phase are used, and by default you only see the rows for your own class in the gui ("Show all classes" shows everything).
 
@@ -72,6 +72,8 @@ A landmark is just a named position. Stand where you want it and run `/leaputils
 ### Presets
 
 ADG and MM7G guide presets come bundled as a starting point, load them from the settings (press twice within 5 sec to confirm since it overwrites the whole matrix). Entries marked TODO_USER are left blank on purpose since those depend on your party setup. Conditions you write are saved to `config/leaputils/conds.json` so they survive loading another preset.
+
+The ADG preset follows the supplied current-role POV: Maxor crystal checkpoints, split Storm predev, green-yellow crush, then the updated Goldor terminal roles. Its notes also document camp timing, movement, gear swaps and conditional melody branches. Savepoint only automates leap targets; it does not attack camp mobs, toggle Jerry, swap gear, complete terminals/devices, or move players to pads. Conditional melody decisions remain manual.
 
 ### Misc
 

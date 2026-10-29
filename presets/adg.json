@@ -1,67 +1,224 @@
 {
   "id": "adg",
   "label": "ADG 5/5 Legit Terminals (High EE3)",
-  "source": "ADG discord: 'How to create terminal roles' + 'Most Optimal 5/5 Legit Terminals (High EE3)' + full M7 green-yellow POV breakdown",
+  "source": "ADG updated all-class M7 POV text supplied by user",
   "notes": [
-    "Term roles assume double skip ss, no levers in S2 for tank (4bl instead) and a fast hee3.",
-    "S1: healer leaps arch after ss, archer leaps mage after skip ss 21, tank leaps mage after 43.",
-    "Bers S1 is a double leap in the guide (arch/tank to stack melody at 6, then mage at 9).",
-    "Step 1 leaps archer, step 2 leaps mage; if you skip the melody leap just open the menu once.",
-    "S2: healer/archer/berserk all leap tank after their term. Tank stays at hee3 for the healer, mage walks 53.",
-    "S3: healer leaps mage, archer preleaps healer (guide default when tank leaps to you or you get levers; otherwise leap mage manually), tank leaps archer then mage after levers (step 2), berserk leaps healer.",
-    "Mage does core and is the destination for everyone, so nobody else leaps for core in this roleset.",
-    "S4: tank leaps mage after both levers, healer leaps mage (implied by the mage premove note), berserk leaps mage once he does i4 (instant dev at S4) - the mage is at his early-enter-2 spot in front of the levers dev.",
-    "Archer and berserk recore leaps are not specified in the guide and are left blank; mage recore needs no leap.",
-    "P1/P2 leaps below are the full M7 green-yellow route, broken down per POV.",
-    "P1 crystal waves (maxor fight): berserk grabs his crystal and leaps to the healer, archer grabs the left crystal and leaps to the tank - twice each, one wave per step.",
-    "Storm moves after the crystals: berserk stands at the py drop-off and predevs the S2 levers, mage aggros storm, tank digs the yellow pad.",
-    "P2.GY s1+s2 = crystal leaps: berserk leaps healer and archer leaps tank after each crystal grab (bers grabs his crystal again between the two leaps).",
-    "P2.GY s3 = repositioning: mage leaps the berserk at py dropoff, tank leaps the mage to start the yellow-pad manoeuvre, healer leaps the mage once their predev is done, archer drops to storm or leaps the berserk at py dropoff.",
-    "P2.GY s4 = purple prep: berserk finishes the S2 levers predev and leaps the tank at the yellow pad; archer leaps the mage to dps storm before the lightning.",
-    "P2.GY s5 = purple crush: after the lightning the mage leaps the healer, the healer steps on the pad then leaps the berserk.",
-    "P2.GY s6 = yellow crush: mage leaps the tank at yellow; storm dies here.",
-    "P2.GY s7 = after storm: mage, tank and archer all leap the healer standing at the simon says spot.",
-    "Tank s3 has an OR in the guide: leap the berserk at py dropoff instead of starting the mage manoeuvre - flip the tank cell in the planner if you run that side.",
-    "PREDEV: healer leaps the berserk waiting at the start of S1 during Storm (pre-dev for i4); other classes left to the user.",
-    "No conds ship with this preset, add your own in the condition editor."
+    "Source: ADG updated all-class M7 POV text and POV clips supplied by the user. The exact written POVs are followed where role summaries conflict.",
+    "Blood camp: kill the first four mobs at about 20 seconds into camp, then camp normally. This is strategy guidance; Savepoint does not attack mobs or automate camp timing.",
+    "Maxor canonical route from the overview: Mage aggros Maxor; Tank and Healer checkpoint left/right pads (Jerry at each pad to protect spring boots); Bers is right crystal and Archer left crystal. Bers leaps to Healer and Archer to Tank after each of two crystal groups. Healer should tether Mage during prestart or after blood rush.",
+    "After crystal group two, Tank and Archer leap to Mage to finish Maxor. Healer and Bers drop to Storm; Healer reverse-predevs device 3 from behind yellow pillar; Bers digs to Storm so Mage/Tank/Archer can leap to Bers.",
+    "Source conflict: the Mage role subsection says Mage is left crystal, while the overview and other role POVs say Mage aggros and Tank/Healer checkpoint. This preset follows the overview strategy; Mage crystal-running is not seeded.",
+    "Storm: Healer does only device 3, leaps to Archer, and stands at acacia aggro spot for Mage. Tank uses spirit mask for lightning. Bers digs to chest room and predevs device 2, then clears yellow/green mobs. Archer leaps Bers, rag-swaps, deathbows mobs between red/purple, then clears purple/red mobs and stands under purple for lightning.",
+    "After lightning Mage and Tank leap to Healer. Healer runs to purple, steps on at ~29.5 for crush at 33.0, then immediately leaps Bers for SS dropoff (or digs to the lever dropoff). Tank then jumps right/up to yellow and pads it at 37.1-37.9; Mage aggros Storm from the back and hits at 40.05/41.05. Archer enrages, leaps Mage, and arrowstacks yellow at 37.5.",
+    "Healer Storm safety: tank lightning with spirit mask. Bers waits near coal/terminal entry for Healer to leap to him for SS positioning.",
+    "S1 terminal role summary: Healer SS / leap Mage for ee2; Archer 43; Bers i4 then leap Tank, then Mage when SS finishes; Tank 21 and may stack 3 for Archer melody or preleap Mage. Archer melody 2 and Bers melody targets are conditional and must be handled manually.",
+    "S2: Healer LL + ee3; Archer 4 + RL then leap Healer; Bers 5 then 3 then leap Healer; Tank starts with 1 then leaps Bers and chooses stack 3 / RL / Healer by melody; Mage continues hee2 role.",
+    "S3: Healer 2/dev then Mage if Bers beats her to device; Archer 4 and preleaps S4 if Tank already left for levers; Bers 3/dev then Mage; Tank 1 then Archer for split levers and Mage for core.",
+    "S4: Archer and Bers leap Mage to enter, then after term leap Mage again; Bers also leaps Mage after levers. Tank 1 then Mage. Healer 4BL then Mage. Mage holds core/recore.",
+    "After Goldor, dig into the far wall for instamid Necron. P4 Necron/relic route: Mage leaps Healer after drop; Archer, Bers and Tank leap Healer at 70m. Healer moves between blue/purple, then runs purple and leaps Bers after the pickup; Archer takes red, Bers orange, Tank green (leaps Archer), Mage blue (leaps Bers).",
+    "Melody branches are intentionally described but not baked into fixed targets: Savepoint cannot detect melody, boss timers, device completion, mob spawns, gear swaps, mask pops, pad movement, or player movement.",
+    "The earlier Mage POV listed Mage crystal runner; this preset follows the overview Maxor strategy and not that alternate/contradictory line."
   ],
   "cells": {
-    "P1.1": { "BERSERK": "HEALER", "ARCHER": "TANK" },
-    "P1.2": { "BERSERK": "HEALER", "ARCHER": "TANK" },
-    "P2.GY.1": { "MAGE": "BERSERK", "TANK": "MAGE", "HEALER": "MAGE", "ARCHER": "BERSERK" },
-    "P2.GY.2": { "BERSERK": "TANK", "ARCHER": "MAGE" },
-    "P2.GY.3": { "MAGE": "HEALER", "HEALER": "BERSERK" },
-    "P2.GY.4": { "MAGE": "TANK" },
-    "P2.GY.5": { "MAGE": "HEALER", "TANK": "HEALER", "ARCHER": "HEALER" },
-    "P2.OLDPY.1": { "MAGE": "TODO_USER", "TANK": "TODO_USER", "BERSERK": "TODO_USER", "ARCHER": "TODO_USER", "HEALER": "TODO_USER" },
-    "P2.OLDPY.2": { "HEALER": "TODO_USER", "MAGE": "TODO_USER", "TANK": "TODO_USER", "BERSERK": "TODO_USER", "ARCHER": "TODO_USER" },
-    "P2.NEWPY.1": { "MAGE": "TODO_USER", "TANK": "TODO_USER", "BERSERK": "TODO_USER", "ARCHER": "TODO_USER" },
-    "P2.NEWPY.2": { "HEALER": "TODO_USER", "MAGE": "TODO_USER", "TANK": "TODO_USER", "BERSERK": "TODO_USER", "ARCHER": "TODO_USER" },
-    "PREDEV.1": { "HEALER": "BERSERK" },
-    "P3.S1.1": { "HEALER": "ARCHER", "ARCHER": "MAGE", "TANK": "MAGE", "BERSERK": "ARCHER" },
-    "P3.S1.2": { "BERSERK": "MAGE" },
-    "P3.S2.1": { "HEALER": "TANK", "ARCHER": "TANK", "BERSERK": "TANK" },
-    "P3.S3.1": { "HEALER": "MAGE", "ARCHER": "HEALER", "TANK": "ARCHER", "BERSERK": "HEALER" },
-    "P3.S3.2": { "TANK": "MAGE" },
-    "P3.S4.1": { "TANK": "MAGE", "HEALER": "MAGE", "BERSERK": "MAGE", "ARCHER": "TODO_USER" },
-    "P4.1": { "*": "NEAREST" }
+    "P2.OLDPY.1": {
+      "MAGE": "TODO_USER",
+      "TANK": "TODO_USER",
+      "BERSERK": "TODO_USER",
+      "ARCHER": "TODO_USER",
+      "HEALER": "TODO_USER"
+    },
+    "P2.OLDPY.2": {
+      "HEALER": "TODO_USER",
+      "MAGE": "TODO_USER",
+      "TANK": "TODO_USER",
+      "BERSERK": "TODO_USER",
+      "ARCHER": "TODO_USER"
+    },
+    "P2.NEWPY.1": {
+      "MAGE": "TODO_USER",
+      "TANK": "TODO_USER",
+      "BERSERK": "TODO_USER",
+      "ARCHER": "TODO_USER"
+    },
+    "P2.NEWPY.2": {
+      "HEALER": "TODO_USER",
+      "MAGE": "TODO_USER",
+      "TANK": "TODO_USER",
+      "BERSERK": "TODO_USER",
+      "ARCHER": "TODO_USER"
+    },
+    "P1.1": {
+      "BERSERK": "HEALER",
+      "ARCHER": "TANK"
+    },
+    "P1.2": {
+      "BERSERK": "HEALER",
+      "ARCHER": "TANK"
+    },
+    "P1.3": {
+      "TANK": "MAGE",
+      "ARCHER": "MAGE"
+    },
+    "P2.GY.1": {
+      "MAGE": "BERSERK",
+      "TANK": "BERSERK",
+      "ARCHER": "BERSERK"
+    },
+    "P2.GY.2": {
+      "HEALER": "ARCHER"
+    },
+    "P2.GY.3": {
+      "MAGE": "HEALER",
+      "TANK": "HEALER"
+    },
+    "P2.GY.4": {
+      "HEALER": "BERSERK"
+    },
+    "P2.GY.5": {
+      "ARCHER": "MAGE"
+    },
+    "P3.S1.ENTRY.1": {
+      "ARCHER": "HEALER",
+      "TANK": "HEALER"
+    },
+    "P3.S1.1": {
+      "HEALER": "MAGE",
+      "BERSERK": "TANK"
+    },
+    "P3.S1.2": {
+      "BERSERK": "MAGE",
+      "ARCHER": "MAGE",
+      "TANK": "MAGE"
+    },
+    "P3.S2.1": {
+      "TANK": "BERSERK"
+    },
+    "P3.S2.2": {
+      "ARCHER": "HEALER",
+      "BERSERK": "HEALER",
+      "TANK": "HEALER"
+    },
+    "P3.S3.1": {
+      "HEALER": "MAGE",
+      "ARCHER": "MAGE",
+      "BERSERK": "MAGE",
+      "TANK": "ARCHER"
+    },
+    "P3.S3.2": {
+      "TANK": "MAGE"
+    },
+    "P3.S4.1": {
+      "ARCHER": "MAGE",
+      "BERSERK": "MAGE"
+    },
+    "P3.S4.2": {
+      "ARCHER": "MAGE",
+      "BERSERK": "MAGE",
+      "TANK": "MAGE"
+    },
+    "P3.S4.3": {
+      "BERSERK": "MAGE",
+      "HEALER": "MAGE"
+    },
+    "P4.1": {
+      "MAGE": "HEALER"
+    },
+    "P4.2": {
+      "ARCHER": "HEALER",
+      "BERSERK": "HEALER",
+      "TANK": "HEALER"
+    },
+    "P4.3": {
+      "HEALER": "BERSERK",
+      "MAGE": "BERSERK",
+      "TANK": "ARCHER"
+    }
   },
   "stepMeta": {
-    "P1.1": { "label": "1st crystal wave", "desc": "Maxor fight, first crystal: berserk leaps the healer and archer (left crystal) leaps the tank once their crystal is melted." },
-    "P1.2": { "label": "2nd crystal wave", "desc": "Maxor fight, second crystal: berserk leaps the healer again and archer leaps the tank again. After this nobody grabs crystals." },
-    "P2.GY.1": { "label": "py drop-off reposition", "desc": "Mage leaps the berserk waiting at the py drop-off. Tank leaps the mage to start the yellow-pad manoeuvre (or the berserk - flip the tank cell for that side). Healer leaps the mage once their predev is done. Archer drops to storm or leaps the berserk." },
-    "P2.GY.2": { "label": "purple prep", "desc": "Berserk finishes the S2 levers predev and leaps the tank waiting at the yellow pad. Archer leaps the mage to dps storm before the lightning." },
-    "P2.GY.3": { "label": "purple crush", "desc": "After the lightning: mage leaps the healer, the healer steps on the pad then leaps the berserk." },
-    "P2.GY.4": { "label": "yellow crush", "desc": "Mage leaps the tank at yellow - storm dies here." },
-    "P2.GY.5": { "label": "regroup at simon says", "desc": "Storm is dead: mage, tank and archer all leap the healer standing at the simon says spot." },
-    "PREDEV.1": { "label": "pre-dev for i4", "desc": "Healer leaps the berserk waiting at the start of S1 during storm." },
-    "P3.S1.1": { "label": "after ss", "desc": "Healer leaps archer after ss, archer leaps mage after skip ss 21, tank leaps mage after 43, berserk leaps archer." },
-    "P3.S1.2": { "label": "bers 2nd leap", "desc": "Berserk's second S1 leap: mage at 9. If you skip the melody leap just open the menu once." },
-    "P3.S2.1": { "label": "after term", "desc": "Healer, archer and berserk all leap the tank after their term. Tank stays at hee3 for the healer, mage walks 53." },
-    "P3.S3.1": { "label": "section start", "desc": "Healer leaps mage, archer preleaps healer, tank leaps archer, berserk leaps healer." },
-    "P3.S3.2": { "label": "after levers", "desc": "Tank leaps the mage after levers." },
-    "P3.S4.1": { "label": "after levers / i4", "desc": "Tank leaps mage after both levers, healer leaps mage (mage premove), berserk leaps mage once he does i4 (instant dev at S4)." },
-    "P4.1": { "label": "necron", "desc": "Everyone leaps the teammate nearest to the necron spot landmark (target mode: nearest)." }
+    "P1.1": {
+      "label": "crystal group 1",
+      "desc": "Bers is right crystal to Healer on right pad; Archer is left crystal to Tank on left pad."
+    },
+    "P1.2": {
+      "label": "crystal group 2",
+      "desc": "Grab the second set and repeat the same checkpoints: Bers -> Healer, Archer -> Tank."
+    },
+    "P1.3": {
+      "label": "finish Maxor",
+      "desc": "After crystals, Tank and Archer leap Mage to finish Maxor. Healer and Bers drop to Storm."
+    },
+    "P2.GY.1": {
+      "label": "Storm entry / Bers checkpoint",
+      "desc": "Healer reverse-predevs device 3; Bers digs to Storm. Mage, Tank and Archer leap Bers."
+    },
+    "P2.GY.2": {
+      "label": "Healer acacia checkpoint",
+      "desc": "After device 3, Healer leaps Archer and stands at acacia aggro spot for Mage."
+    },
+    "P2.GY.3": {
+      "label": "lightning / Tank and Mage to Healer",
+      "desc": "Tank wears spirit mask for lightning. After Mage leaps to Healer, Tank also leaps to Healer then moves right/up to yellow."
+    },
+    "P2.GY.4": {
+      "label": "purple crush / Healer to Bers",
+      "desc": "Healer steps on purple at ~29.5 for crush at 33.0, then leaps Bers for SS dropoff (or digs to lever dropoff)."
+    },
+    "P2.GY.5": {
+      "label": "yellow crush / enrage",
+      "desc": "Tank pads yellow at 37.1-37.9; Mage hits Storm at 40.05/41.05. Archer leaps Mage and arrowstacks yellow at 37.5."
+    },
+    "P3.S1.ENTRY.1": {
+      "label": "S1 entry / SS setup",
+      "desc": "When Storm ends, Archer and Tank leap Healer. Healer does SS before her Mage leap."
+    },
+    "P3.S1.1": {
+      "label": "after i4 / melody branch",
+      "desc": "After SS, Healer leaps Mage for ee2. Bers leaps Tank after i4. Tank may stack for Archer melody; Archer may leap Tank for melody 2."
+    },
+    "P3.S1.2": {
+      "label": "after SS / preleap Mage",
+      "desc": "Bers leaps Mage when SS finishes. Archer leaps Mage when section finishes unless melody stack is needed. Tank preleaps Mage when no stack is needed."
+    },
+    "P3.S2.1": {
+      "label": "S2 entry",
+      "desc": "Tank completes 1 then leaps Bers. Other roles do their S2 terminals and levers."
+    },
+    "P3.S2.2": {
+      "label": "S2 to Healer ee3",
+      "desc": "Archer after 4/RL, Bers after 5/3, and Tank after melody choices leap Healer at ee3."
+    },
+    "P3.S3.1": {
+      "label": "S3 terminals / levers split",
+      "desc": "Healer/Bers/Archer leap Mage after their device/terminal timing. Tank completes 1 then leaps Archer to split levers."
+    },
+    "P3.S3.2": {
+      "label": "after split levers",
+      "desc": "Tank leaps Mage for core. Healer may also leap Mage if Bers completes device first."
+    },
+    "P3.S4.1": {
+      "label": "S4 entry",
+      "desc": "Archer and Bers leap Mage to enter S4."
+    },
+    "P3.S4.2": {
+      "label": "after S4 terminal",
+      "desc": "Archer and Bers leap Mage after their terminal; Tank leaps Mage after 1."
+    },
+    "P3.S4.3": {
+      "label": "after S4 levers / recore",
+      "desc": "Bers leaps Mage again after levers; Healer leaps Mage after 4BL."
+    },
+    "P4.1": {
+      "label": "Necron drop",
+      "desc": "Mage leaps Healer after Necron drops them."
+    },
+    "P4.2": {
+      "label": "70m / Necron death handoff",
+      "desc": "At 70m Archer and Bers leap Healer; Tank leaps Healer after Necron dies."
+    },
+    "P4.3": {
+      "label": "relic handoffs",
+      "desc": "Healer/Mage leap Bers for purple/blue; Tank leaps Archer for green. Archer takes red; Bers orange."
+    }
   },
   "conds": {}
 }

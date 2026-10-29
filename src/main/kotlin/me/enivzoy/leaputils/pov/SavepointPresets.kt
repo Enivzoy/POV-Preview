@@ -41,10 +41,16 @@ object SavepointPresets {
     private val condType = object : TypeToken<LinkedHashMap<String, PresetCondJson>>() {}.type
 
     /**
-     * The remote-cached copy wins over the bundled resource: the updater (SavepointRemote) refreshes these
-     * from the GitHub repo every launch, so a downloaded preset is always newer than the one baked into the jar.
+     * The current ADG POV is bundled and authoritative; this prevents an older cached ADG
+     * plan from restoring obsolete rows. Other presets can still use the remote cache first.
      */
-    fun load(id: String): PresetFile? = loadCached(id) ?: loadBundled(id)
+    // ADG is the project-maintained POV preset. Prefer the bundled copy so a stale
+    // downloaded ADG JSON cannot restore the retired crystal rows or old role map.
+    fun load(id: String): PresetFile? = if (id == "adg") {
+        loadBundled(id) ?: loadCached(id)
+    } else {
+        loadCached(id) ?: loadBundled(id)
+    }
 
     private fun loadCached(id: String): PresetFile? = runCatching {
         val p = presetsDir.resolve("$id.json")
@@ -52,7 +58,7 @@ object SavepointPresets {
         gson.fromJson(Files.readString(p), PresetFile::class.java)
     }.getOrNull()
 
-    private fun loadBundled(id: String): PresetFile? = runCatching {
+    internal fun loadBundled(id: String): PresetFile? = runCatching {
         val stream = SavepointPresets::class.java.classLoader.getResourceAsStream("assets/leaputils/presets/$id.json") ?: return null
         stream.bufferedReader().use { reader -> gson.fromJson(reader, PresetFile::class.java) }
     }.getOrNull()

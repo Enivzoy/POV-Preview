@@ -172,7 +172,7 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
         for (stageInfo in Savepoint.planStages()) {
             val stage = stageInfo.stage
             var blockH = 20
-            for (step in 1..stage.steps) blockH += chipH + 19 + (if (Savepoint.condLabel(stage, step) != null) 10 else 0)
+            for (step in stageInfo.steps) blockH += chipH + 19 + (if (Savepoint.condLabel(stage, step) != null) 10 else 0)
 
             val visible = y + blockH >= HEADER_Y && y <= height - 20
             if (visible) drawBlock(graphics, stageInfo, MARGIN, y, blockW, blockH, chipW, chipH, mouseX, mouseY)
@@ -212,7 +212,7 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
         info.note?.let { graphics.text(it, x + w - 8 - Minecraft.getInstance().font.width(it), y + 6, Colors.MINECRAFT_DARK_GRAY) }
 
         var sy = y + 20
-        for (step in 1..stage.steps) {
+        for (step in info.steps) {
             // step label line: "s1 · 1st crystal" - the preset explains what the moment is
             val label = Savepoint.stepLabel(stage, step)
             graphics.text("§8s$step" + (label?.let { " §7· §f$it" } ?: ""), x + 8, sy + 1, Colors.WHITE)
@@ -400,9 +400,9 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
         "§l§fPresets & updates",
         "§fLoad ADG / MM7G§7 copies that guide into Custom (press twice within 5s to confirm). It",
         "§7overwrites every stage the preset covers - stages it doesn't cover keep your cells,",
-        "§7so your own P1 crystal leaps and P5 setup survive a load. Both files are fetched from",
-        "§7GitHub on every title screen; §f/leaputils reload§7 fetches updates and refreshes the",
-        "§7step labels in game without a restart.",
+        "§7so your own cells in uncovered phases survive a load. ADG uses the bundled current POV;",
+        "§7MM7G can use the remote cached preset. §f/leaputils reload§7 refreshes available preset",
+        "§7metadata and step labels in game without a restart.",
         "",
         "§l§fGood to know",
         "§7- the §fCustom Planner§7 button on the Minecraft title screen opens this planner",
