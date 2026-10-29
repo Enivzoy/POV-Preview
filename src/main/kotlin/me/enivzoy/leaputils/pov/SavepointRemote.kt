@@ -4,6 +4,7 @@ import com.odtheking.odin.events.ScreenEvent
 import com.odtheking.odin.events.core.EventBus
 import com.odtheking.odin.events.core.on
 import com.odtheking.odin.utils.modMessage
+import net.fabricmc.loader.api.FabricLoader
 import net.minecraft.client.gui.screens.TitleScreen
 import java.net.URI
 import java.net.http.HttpClient
@@ -24,6 +25,12 @@ object SavepointRemote {
 
     /** the one repo presets come from - deliberately not a setting, the updater points where the mod points */
     private const val REPO_BASE = "https://raw.githubusercontent.com/Enivzoy/POV-Preview/LeapUtils"
+
+    /** github's cdn deprioritizes/blocks generic java clients - identify ourselves properly */
+    private val USER_AGENT: String = runCatching {
+        val version = FabricLoader.getInstance().getModContainer("leaputils").orElse(null)?.metadata?.version?.friendlyString ?: "?"
+        "LeapUtils/$version (github.com/Enivzoy/POV-Preview)"
+    }.getOrDefault("LeapUtils (github.com/Enivzoy/POV-Preview)")
 
     private var registered = false
     private var checkedThisSession = false
@@ -63,6 +70,7 @@ object SavepointRemote {
                 val request = HttpRequest.newBuilder(URI.create(url))
                     .timeout(Duration.ofSeconds(30))
                     .header("Accept", "application/json")
+                    .header("User-Agent", USER_AGENT)
                     .GET()
                     .build()
                 val body = client.send(request, HttpResponse.BodyHandlers.ofString()).body()
