@@ -105,8 +105,15 @@ object LeapUtilsCommands {
                     .then(
                         ClientCommands.literal("plan")
                             .executes {
-                                runCatching { Minecraft.getInstance().gui.setScreen(SavepointPlanScreen()) }
+                                // 26.2: gui.setScreen only flips state - setScreenAndShow is what actually displays it
+                                val screen = runCatching { SavepointPlanScreen() }
                                     .onFailure { modMessage("[LeapUtils] couldn't open the planner: ${it.message}") }
+                                    .getOrNull()
+                                if (screen != null) {
+                                    val mc = Minecraft.getInstance()
+                                    mc.schedule { mc.setScreenAndShow(screen) }
+                                    SpLog.info("plan", "planner opened via /leaputils plan")
+                                }
                                 Command.SINGLE_SUCCESS
                             }
                     )

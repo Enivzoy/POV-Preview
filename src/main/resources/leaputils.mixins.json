@@ -11,7 +11,8 @@
     "LevelRendererMixin",
     "LivingEntityAccessor",
     "Matrix4fStackAccessor",
-    "SectionUpdateTrackerMixin"
+    "SectionUpdateTrackerMixin",
+    "TitleScreenMixin"
   ],
   "injectors": {
     "defaultRequire": 1

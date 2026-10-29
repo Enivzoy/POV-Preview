@@ -3,3 +3,5 @@ classTweaker v1 official
 accessible field net/minecraft/client/renderer/feature/FeatureRenderDispatcher preparedFrame Lnet/minecraft/client/renderer/feature/FeatureRenderDispatcher$PreparedFrame;
 accessible field net/minecraft/client/renderer/feature/FeatureRenderDispatcher$PreparedFrame context Lnet/minecraft/client/renderer/feature/FeatureFrameContext;
 accessible field net/minecraft/client/renderer/feature/FeatureRenderDispatcher$PreparedFrame submitNodeStorage Lnet/minecraft/client/renderer/SubmitNodeStorage;
+accessible method net/minecraft/client/gui/screens/Screen removeWidget (Lnet/minecraft/client/gui/components/events/GuiEventListener;)V
+accessible method net/minecraft/client/gui/screens/Screen addRenderableWidget (Lnet/minecraft/client/gui/components/events/GuiEventListener;)Lnet/minecraft/client/gui/components/events/GuiEventListener;

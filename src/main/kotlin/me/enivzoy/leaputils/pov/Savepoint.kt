@@ -86,8 +86,8 @@ object Savepoint : Module(
     val stormVariant by SelectorSetting("Storm variant", StormVariant.GY, desc = "Each variant owns its own leap rows", listOf(StormVariant.GY, StormVariant.OLD_PY, StormVariant.NEW_PY)).withDependency { storm }
     val dropOffSpotter by SelectorSetting("Drop off spotter", DungeonClass.BERSERK, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER)).hide()
     val purpleSpotter by SelectorSetting("Purple Spotter", DungeonClass.MAGE, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER)).hide()
-    val stormLandmark by StringSetting("Storm drop-off landmark", "py_dropoff", 24, "name", "Landmark used when a Storm drop-off cell targets Nearest; capture with /leaputils landmark <name>").withDependency { storm }
-    val stormRadius by NumberSetting("Storm radius", 64, 2..128, 2, desc = "Max distance in blocks for Storm Nearest mode").withDependency { storm }
+    var stormLandmark by StringSetting("Storm drop-off landmark", "py_dropoff", 24, "name", "Landmark used when a Storm drop-off cell targets Nearest; capture with /leaputils landmark <name>").withDependency { storm }
+    var stormRadius by NumberSetting("Storm radius", 64, 2..128, 2, desc = "Max distance in blocks for Storm Nearest mode").withDependency { storm }
 
     val goldor by BooleanSetting("Goldor", true, desc = "P3 section leap rules")
     val goldorS1 by BooleanSetting("Goldor S1", true, desc = "Section 1 leap rules").withDependency { goldor }
@@ -103,12 +103,13 @@ object Savepoint : Module(
     val necron by BooleanSetting("Necron", true, desc = "P4 leap rules")
     var necronTargetMode by SelectorSetting("Necron target mode", TargetMode.NEAREST, desc = "Leap to the nearest teammate at a landmark, or use per-class rows", listOf(TargetMode.NEAREST, TargetMode.CLASS)).withDependency { necron }
     var necronLandmark by StringSetting("Necron landmark", "necron_spot", 24, "name", "Landmark used by Nearest mode; capture with /leaputils landmark <name>").withDependency { necron && necronTargetMode == TargetMode.NEAREST }
-    val necronRadius by NumberSetting("Necron radius", 64, 2..128, 2, desc = "Max distance in blocks for Nearest mode").withDependency { necron && necronTargetMode == TargetMode.NEAREST }
+    var necronRadius by NumberSetting("Necron radius", 64, 2..128, 2, desc = "Max distance in blocks for Nearest mode").withDependency { necron && necronTargetMode == TargetMode.NEAREST }
 
     val witherKing by BooleanSetting("Wither King", false, desc = "P5 leap rules")
-    val p5TargetMode by SelectorSetting("P5 target mode", TargetMode.NEAREST, desc = "Leap to the nearest teammate at a landmark, or use per-class rows", listOf(TargetMode.NEAREST, TargetMode.CLASS)).withDependency { witherKing }
-    val p5Landmark by StringSetting("P5 landmark", "", 24, "name", "Landmark used by Nearest mode; capture with /leaputils landmark <name>").withDependency { witherKing && p5TargetMode == TargetMode.NEAREST }
-    val p5Radius by NumberSetting("P5 radius", 64, 2..128, 2, desc = "Max distance in blocks for Nearest mode").withDependency { witherKing && p5TargetMode == TargetMode.NEAREST }
+    var p5TargetMode by SelectorSetting("P5 target mode", TargetMode.NEAREST, desc = "Leap to the nearest teammate at a landmark, or use per-class rows", listOf(TargetMode.NEAREST, TargetMode.CLASS)).withDependency { witherKing }
+    var p5Landmark by StringSetting("P5 landmark", "", 24, "name", "Landmark used by Nearest mode; capture with /leaputils landmark <name>").withDependency { witherKing && p5TargetMode == TargetMode.NEAREST }
+    var p5Radius by NumberSetting("P5 radius", 64, 2..128, 2, desc = "Max distance in blocks for Nearest mode").withDependency { witherKing && p5TargetMode == TargetMode.NEAREST }
+    var plannerDepth by BooleanSetting("Planner depth mode", false, desc = "Planner chips show full names (Berserk > Nearest) instead of abbreviations (B > n)").hide()
 
     val soloCrush by BooleanSetting("SoloCrush", true, desc = "Skip the Purple Spotter (mage) leap after predev and leap straight to the berserk waiting at the start of S1 instead")
     val section1Spotter by SelectorSetting("Section 1 Spotter", DungeonClass.BERSERK, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER)).hide()
@@ -135,7 +136,7 @@ object Savepoint : Module(
     private fun stageTitle(stage: SpStage): String = when (stage) {
         SpStage.P1_L -> "Maxor, left crystal"
         SpStage.P1_R -> "Maxor, right crystal"
-        SpStage.P2_GY -> "Storm, graveyard route" // easter egg kek
+        SpStage.P2_GY -> "Storm, green-yellow route"
         SpStage.P2_OLDPY -> "Storm, old purple to yellow route"
         SpStage.P2_NEWPY -> "Storm, new purple to yellow route"
         SpStage.PREDEV -> "Storm / Goldor section 0, before the boss starts" // will account for pre-ministers soon
@@ -592,7 +593,8 @@ object Savepoint : Module(
     }
 
     private fun openPlannerScreen() {
-        runCatching { mc.gui.setScreen(SavepointPlanScreen()) }
+        runCatching { mc.setScreenAndShow(SavepointPlanScreen()) }
+            .onSuccess { SpLog.info("plan", "planner opened from the action setting") }
             .onFailure { modMessage("[Savepoint] couldn't open the planner: ${it.message}") }
     }
 
@@ -671,8 +673,8 @@ object Savepoint : Module(
             }
             M7Phases.P2 -> buildList {
                 if (storm) {
-                    add(SpStep(stormStage(), 1))
-                    add(SpStep(stormStage(), 2))
+                    // arm every step of the active storm variant - deep routes use more than two
+                    for (s in 1..stormStage().steps) add(SpStep(stormStage(), s))
                 }
                 if (goldor && GoldorTracker.section == 0) add(SpStep(SpStage.PREDEV, 1))
             }
