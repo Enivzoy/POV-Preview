@@ -46,7 +46,7 @@ object SavepointRemote {
     fun checkForUpdates(manual: Boolean = false) {
         val client = HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.NORMAL)
-            .connectTimeout(Duration.ofSeconds(10))
+            .connectTimeout(Duration.ofSeconds(15))
             .build()
         try {
             for (id in PRESET_IDS) fetchOne(client, REPO_BASE, id, manual)
@@ -57,43 +57,54 @@ object SavepointRemote {
 
     private fun fetchOne(client: HttpClient, base: String, id: String, manual: Boolean) {
         val url = "$base/presets/$id.json"
-        try {
-            val request = HttpRequest.newBuilder(URI.create(url))
-                .timeout(Duration.ofSeconds(15))
-                .header("Accept", "application/json")
-                .GET()
-                .build()
-            val body = client.send(request, HttpResponse.BodyHandlers.ofString()).body()
-            if (body.isNullOrBlank()) {
-                SpLog.warn("presets", "$id: $url returned an empty body")
-                if (manual) modMessage("[Savepoint] §c$id§f: $url returned nothing")
+        var lastError: Exception? = null
+        for (attempt in 1..ATTEMPTS) {
+            try {
+                val request = HttpRequest.newBuilder(URI.create(url))
+                    .timeout(Duration.ofSeconds(30))
+                    .header("Accept", "application/json")
+                    .GET()
+                    .build()
+                val body = client.send(request, HttpResponse.BodyHandlers.ofString()).body()
+                if (body.isNullOrBlank()) {
+                    SpLog.warn("presets", "$id: $url returned an empty body")
+                    if (manual) modMessage("[Savepoint] §c$id§f: $url returned nothing")
+                    return
+                }
+                // never cache something that isn't a valid preset - a broken push must not poison the loader
+                val parsed = SavepointPresets.fromJson(body)
+                if (parsed == null) {
+                    SpLog.warn("presets", "$id: $url is not a valid preset JSON, keeping the current copy")
+                    if (manual) modMessage("[Savepoint] §c$id§f: remote file is not valid preset JSON")
+                    return
+                }
+                val (existed, changed) = SavepointPresets.saveRemote(id, body)
+                when {
+                    !existed -> {
+                        modMessage("[Savepoint] §a$id§f preset downloaded from GitHub §7($url)§f")
+                        SpLog.info("presets", "$id: first download from $url")
+                    }
+                    changed -> {
+                        modMessage("[Savepoint] §a$id§f preset was §lupdated§r§f on GitHub - the new version is saved")
+                        SpLog.info("presets", "$id: remote update detected and saved from $url")
+                    }
+                    else -> {
+                        SpLog.info("presets", "$id: remote matches the cached copy")
+                        if (manual) modMessage("[Savepoint] §a$id§f preset is up to date")
+                    }
+                }
                 return
+            } catch (e: Exception) {
+                lastError = e
+                SpLog.warn("presets", "$id: attempt $attempt/$ATTEMPTS failed ($url): ${e.javaClass.simpleName}: ${e.message}")
+                if (attempt < ATTEMPTS) runCatching { Thread.sleep(RETRY_DELAY_MS) }
             }
-            // never cache something that isn't a valid preset - a broken push must not poison the loader
-            val parsed = SavepointPresets.fromJson(body)
-            if (parsed == null) {
-                SpLog.warn("presets", "$id: $url is not a valid preset JSON, keeping the current copy")
-                if (manual) modMessage("[Savepoint] §c$id§f: remote file is not valid preset JSON")
-                return
-            }
-            val (existed, changed) = SavepointPresets.saveRemote(id, body)
-            when {
-                !existed -> {
-                    modMessage("[Savepoint] §a$id§f preset downloaded from GitHub §7($url)§f")
-                    SpLog.info("presets", "$id: first download from $url")
-                }
-                changed -> {
-                    modMessage("[Savepoint] §a$id§f preset was §lupdated§r§f on GitHub - the new version is saved")
-                    SpLog.info("presets", "$id: remote update detected and saved from $url")
-                }
-                else -> {
-                    SpLog.info("presets", "$id: remote matches the cached copy")
-                    if (manual) modMessage("[Savepoint] §a$id§f preset is up to date")
-                }
-            }
-        } catch (e: Exception) {
-            SpLog.warn("presets", "$id: update check failed ($url): ${e.javaClass.simpleName}: ${e.message}")
-            if (manual) modMessage("[Savepoint] §c$id§f update check failed: ${e.message ?: e.javaClass.simpleName}")
         }
+        SpLog.warn("presets", "$id: update check failed ($url): ${lastError?.javaClass?.simpleName}: ${lastError?.message}")
+        if (manual) modMessage("[Savepoint] §c$id§f update check failed: ${lastError?.message ?: lastError?.javaClass?.simpleName ?: "unknown error"} - run §f/leaputils reload§f to try again")
     }
+
+    /** github raw hiccups now and then - one automatic retry before giving up */
+    private const val ATTEMPTS = 2
+    private const val RETRY_DELAY_MS = 1_500L
 }
