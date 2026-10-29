@@ -359,7 +359,7 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
         "§7auto-update from GitHub every time Minecraft loads, so route fixes reach you for free.",
         "",
         "§l§fStage blocks",
-        "§7Each block is a fight phase, top to bottom in fight order: Maxor left/right crystals, the",
+        "§7Each block is a fight phase, top to bottom in fight order: Maxor crystal waves, the",
         "§7active Storm route variant, predev, Goldor S1-S4, Necron and Wither King. The dot next to",
         "§7the title shows whether that phase is enabled in the module settings (§a●§7 on, §8○§7 off).",
         "",

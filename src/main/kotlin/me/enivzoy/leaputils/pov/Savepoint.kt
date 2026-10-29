@@ -134,8 +134,7 @@ object Savepoint : Module(
     // this isn't used in the code anywhere its purely for logging purposes.
     // */
     private fun stageTitle(stage: SpStage): String = when (stage) {
-        SpStage.P1_L -> "Maxor, left crystal"
-        SpStage.P1_R -> "Maxor, right crystal"
+        SpStage.P1 -> "Maxor, crystal checkpoints"
         SpStage.P2_GY -> "Storm, green-yellow route"
         SpStage.P2_OLDPY -> "Storm, old purple to yellow route"
         SpStage.P2_NEWPY -> "Storm, new purple to yellow route"
@@ -151,9 +150,9 @@ object Savepoint : Module(
     private fun cellDesc(stage: SpStage, step: Int, c: DungeonClass): String {
         val where = stageTitle(stage)
         val what = when (stage) {
-            SpStage.P1_L, SpStage.P1_R -> "leap after your crystal is done"
+            SpStage.P1 -> "leap when the crystal you grabbed is melted (step 1 = first wave, step 2 = second wave)"
             SpStage.P2_GY, SpStage.P2_OLDPY, SpStage.P2_NEWPY ->
-                if (step == 1) "leap after the drop off" else "leap for the purple spotter (skipped for healer while SoloCrush is on)"
+                if (step == 1) "leap at the py drop-off (reposition)" else "storm route step $step"
             SpStage.PREDEV -> "pre-dev leap to the teammate waiting at the start of Goldor section 1 (arms during Storm and while you are down in Goldor before the boss starts; during late Maxor the drop-off row handles the berserk at the py drop-off instead)"
             SpStage.P3_S1 -> if (step == 1) "leap after your section 1 terminals" else "second section 1 leap (e.g. berserk leaping mage at 9 masks)"
             SpStage.P3_S2 -> "leap after your section 2 terminal"
@@ -194,8 +193,8 @@ object Savepoint : Module(
 
     init {
         for (c in SavepointEngine.LEAP_CLASSES) {
-            cell(SpStage.P1_L, 1, c) { maxor && (showAllClasses || myClassCached == c) }
-            cell(SpStage.P1_R, 1, c) { maxor && (showAllClasses || myClassCached == c) }
+            cell(SpStage.P1, 1, c) { maxor && (showAllClasses || myClassCached == c) }
+            cell(SpStage.P1, 2, c) { maxor && (showAllClasses || myClassCached == c) }
         }
         for ((stage, variant) in listOf(
             SpStage.P2_GY to StormVariant.GY,
@@ -491,9 +490,7 @@ object Savepoint : Module(
             SpLog.info("migrate", "already migrated; skipping")
         } else {
             legacyMigrated = true
-            SpLog.info("migrate", "legacy: left=${maxorLeftClass}->${maxorLeftTo} right=${maxorRightClass}->${maxorRightTo} dropOff=$dropOffSpotter purple=$purpleSpotter soloCrush=$soloCrush s1=$section1Spotter s2=$section2Spotter s3=$section3Spotter core=$coreSpotter early=$earlyNecronSpotter goldorIf=$goldorIf goldorTo=$goldorTo")
-            setCell(SpStage.P1_L, 1, maxorLeftClass, maxorLeftTo.toTgt())
-            setCell(SpStage.P1_R, 1, maxorRightClass, maxorRightTo.toTgt())
+            SpLog.info("migrate", "legacy: maxor crystal rows are now preset-driven (left=$maxorLeftClass right=$maxorRightClass not migrated); dropOff=$dropOffSpotter purple=$purpleSpotter soloCrush=$soloCrush s1=$section1Spotter s2=$section2Spotter s3=$section3Spotter core=$coreSpotter early=$earlyNecronSpotter goldorIf=$goldorIf goldorTo=$goldorTo")
             for (v in listOf(SpStage.P2_GY, SpStage.P2_OLDPY, SpStage.P2_NEWPY)) {
                 for (c in SavepointEngine.LEAP_CLASSES) if (c != dropOffSpotter) setCell(v, 1, c, dropOffSpotter.toTgt())
                 for (c in SavepointEngine.LEAP_CLASSES) if (c != purpleSpotter) setCell(v, 2, c, purpleSpotter.toTgt())
@@ -548,8 +545,7 @@ object Savepoint : Module(
 
     /** every stage block the planner shows, in fight order; storm shows only the active variant's block */
     internal fun planStages(): List<PlanStageInfo> = listOf(
-        PlanStageInfo(SpStage.P1_L, stageTitle(SpStage.P1_L), maxor, null),
-        PlanStageInfo(SpStage.P1_R, stageTitle(SpStage.P1_R), maxor, null),
+        PlanStageInfo(SpStage.P1, stageTitle(SpStage.P1), maxor, null),
         PlanStageInfo(stormStage(), "${stageTitle(stormStage())} (variant: ${stormVariant.name})", storm, null),
         PlanStageInfo(SpStage.PREDEV, stageTitle(SpStage.PREDEV), goldor, null),
         PlanStageInfo(SpStage.P3_S1, stageTitle(SpStage.P3_S1), goldor && goldorS1, null),
@@ -692,9 +688,11 @@ object Savepoint : Module(
             if (GoldorTracker.section == 0 && (raw == M7Phases.P3 || raw == M7Phases.P4 || raw == M7Phases.P5)) M7Phases.P2 else raw
         return when (ph) {
             M7Phases.P1 -> buildList {
-                if (maxor) {
-                    add(SpStep(SpStage.P1_L, 1))
-                    add(SpStep(SpStage.P1_R, 1))
+                // crystal waves while the maxor fight is live; once someone is down at the py drop-off the
+                // crystal work is over (grabbing crystals only happens up on the maxor platform) and the
+                // storm route's reposition step takes over the window
+                if (maxor && !berserkDropped()) {
+                    for (s in 1..SpStage.P1.steps) add(SpStep(SpStage.P1, s))
                 }
                 if (storm && berserkDropped()) add(SpStep(stormStage(), 1))
             }

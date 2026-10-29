@@ -4,9 +4,8 @@ import com.odtheking.odin.utils.skyblock.dungeon.DungeonClass
 import kotlin.math.sqrt
 
 enum class SpStage(val id: String, val steps: Int) {
-    P1_L("P1.L", 1),
-    P1_R("P1.R", 1),
-    P2_GY("P2.GY", 7),
+    P1("P1", 2),
+    P2_GY("P2.GY", 5),
     P2_OLDPY("P2.OLDPY", 2),
     P2_NEWPY("P2.NEWPY", 2),
     PREDEV("PREDEV", 1),
