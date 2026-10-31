@@ -363,7 +363,7 @@ object EarlyEnter : Module(
             if (inScreen) closeScreenInternal() // switching straight from one tracked screen to another
             // a queued swap older than the purge window is from a sit that is long over; dump it
             val before = actions.size
-            actions.removeAll { it.queuedAt < now - QUEUE_PURGE_MS && it !is Restore }
+            actions.removeAll { it.queuedAt < now - QUEUE_PURGE_MS && it !is Restore && it !is Swap }
             staleDropped = before - actions.size
             inScreen = true
             screenOpenedAt = now
@@ -433,7 +433,6 @@ object EarlyEnter : Module(
                         modMessage("[EarlyEnter] helmet back on; closing the screen")
                         synchronized(lock) {
                             swapBackPending = false
-                            originalHelmet = null
                             actions.remove(action)
                             val again = Close(System.currentTimeMillis())
                             again.fireAt = System.currentTimeMillis() + verifyMs()
@@ -458,7 +457,6 @@ object EarlyEnter : Module(
                     modMessage("[EarlyEnter] \u00a7ahelmet back on\u00a7f \u00a78(try ${action.tries})")
                     synchronized(lock) {
                         swapBackPending = false
-                        originalHelmet = null
                         actions.remove(action)
                     }
                     return
@@ -485,7 +483,6 @@ object EarlyEnter : Module(
                         modMessage("[EarlyEnter] \u00a7e${action.wanted.name} never appeared in your inventory\u00a7f \u00a77- check your helmet")
                         synchronized(lock) {
                             swapBackPending = false
-                            originalHelmet = null
                             actions.remove(action)
                         }
                     }
