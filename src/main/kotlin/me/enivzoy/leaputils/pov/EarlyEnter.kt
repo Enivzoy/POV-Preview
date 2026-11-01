@@ -299,8 +299,9 @@ object EarlyEnter : Module(
                 // no mask re-wear here: the other mask was JUST worn and popped, re-equipping it does nothing
                 closedChain = true
                 actions.removeAll { it is Swap } // a still-queued pop#1 swap would only put a fresh-cooldown mask on
-                originalHelmet?.let { arm(Restore(it, at), 0) }
-                arm(Close(at), 1)
+                // instant end-of-sit: the swap already displaced the helmet off the head, so just click the
+                // original helmet back and close the screen - no restore staging / verify window wanted
+                arm(Close(at), 0)
                 reaction = "both"
             } else if (actions.none { it is Swap }) {
                 push(Swap(kind.other, at), at)
@@ -433,14 +434,9 @@ object EarlyEnter : Module(
                         runCatching { mc.player?.clickSlot(hit.index) }
                         SpLog.info("earlyenter", "restore-before-close: clicked ${hit.renderForLog}")
                         modMessage("[EarlyEnter] helmet back on; closing the screen")
-                        synchronized(lock) {
-                            swapBackPending = false
-                            actions.remove(action)
-                            val again = Close(System.currentTimeMillis())
-                            again.fireAt = System.currentTimeMillis() + verifyMs()
-                            actions += again
-                        }
-                        return
+                        synchronized(lock) { swapBackPending = false; actions.remove(action) }
+                        // no verify staging on this path - click the helmet back and let the shared close tail
+                        // right below put the screen down straight away
                     } else if (verboseLog) {
                         SpLog.info("earlyenter", "restore-before-close: original (${orig.render()}) not in the inventory region (already on the head?), closing")
                     }
@@ -503,6 +499,14 @@ object EarlyEnter : Module(
                 synchronized(lock) { action.fireAt = now + verifyMs() }
             }
             is Swap -> {
+                // masks are time-gated (spirit 30s / bonzo's cd scales off the worn head), not one-shot: if
+                // the mask we are swapping onto is still cooling down there is nothing useful to click - hold
+                // the swap and let the spent-save tail (original helmet back + close) run the sit down
+                val targetCd = synchronized(lock) { maskCdTicks[action.kind] ?: 0 }
+                if (targetCd > 0) {
+                    SpLog.info("earlyenter", "swap ${action.kind.name}: target mask still on cooldown (${targetCd / 20f}s) - holding swap")
+                    return
+                }
                 // one click replaces whatever is on your head - success is the mask leaving your inventory
                 // (the client's worn-helmet data lags behind the server on hypixel, so the inventory is the truth)
                 if (action.clickedUuid.isNotEmpty() && !invRegionHoldsUuid(container, action.clickedUuid)) {
