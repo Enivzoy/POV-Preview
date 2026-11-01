@@ -447,6 +447,12 @@ object EarlyEnter : Module(
                 SpLog.info("earlyenter", "CLOSE screen ${if (orig != null) "(original helmet not restored!)" else ""}")
                 synchronized(lock) { actions.remove(action) }
                 mc.gui.setScreen(null)
+                // the sit is over - re-arm the next death's pop chain instead of staying stuck in the
+                // popped/closed state (a repeat pop in the next sit would be swallowed as a duplicate)
+                synchronized(lock) {
+                    poppedKinds.clear()
+                    closedChain = false
+                }
             }
             is Restore -> {
                 // one click replaces whatever is on your head; the helmet leaving the inventory is the fast
@@ -660,10 +666,23 @@ object EarlyEnter : Module(
         // the sgdt rig must work anywhere e.g. while dry-testing in the village with the screen open; the
         // bypass stays on until its action chain (helmet restore + close tail) has fully drained
         if (synchronized(lock) { sgdtRunning || (rigArmed && actions.isNotEmpty()) }) return true
-        if (!runCatching { DungeonUtils.inBoss }.getOrDefault(false)) return false
-        if (!runCatching { DungeonUtils.isFloor(7) }.getOrDefault(false)) return false
+        val inBoss = runCatching { DungeonUtils.inBoss }.getOrDefault(false)
+        val onGoldorFloor = runCatching { DungeonUtils.isFloor(7) }.getOrDefault(false)
         // dynamic: any goldor sit counts (sections 1-4 + core recore sits)
-        return GoldorTracker.section in 1..5
+        val inGoldorSection = GoldorTracker.section in 1..5
+        if (!inBoss) {
+            SpLog.info("earlyenter", "reaction blocked: not in a boss fight (inBoss=$inBoss) - swap chain held")
+            return false
+        }
+        if (!onGoldorFloor) {
+            SpLog.info("earlyenter", "reaction blocked: boss fight is not on the goldor floor (isFloor7=$onGoldorFloor) - swap chain held")
+            return false
+        }
+        if (!inGoldorSection) {
+            SpLog.info("earlyenter", "reaction blocked: goldor section=${GoldorTracker.section} not in 1..5 - swap chain held")
+            return false
+        }
+        return true
     }
 
     private fun shouldWaitForSchizoKeypress(screen: Screen): Boolean {
