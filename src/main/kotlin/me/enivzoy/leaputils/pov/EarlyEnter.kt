@@ -113,6 +113,8 @@ object EarlyEnter : Module(
     val sgdtInterval by NumberSetting("SGDT interval", 3.0, 1.0..120.0, 0.5, desc = "Seconds between the fake death ticks of the /leaputils sgdt test rig (odin's goldor tick is 60t = 3s)", unit = "s")
     val pheonixPet by BooleanSetting("Pheonix Pet", false, desc = "Only start the order after your Phoenix Pet popped (mask pops before that are ignored). Off: the moment the stats screen is open the order starts")
     val bonzoFirst by BooleanSetting("Bonzo first", false, desc = "The order: Spirit onto your head first (default) or Bonzo first; also sets the order the sgdt rig pops in")
+    val onlyInDungeons by BooleanSetting("Only in Dungeons", true, desc = "Only react to mask pops and run the swap flow while inside a dungeon")
+    val onlyInGoldor by BooleanSetting("Only in Goldor", true, desc = "Only run the swap flow during the Goldor boss fight (in boss + goldor floor + sections 1..5); off = don't apply the fight-specific gate")
 
     private val lock = Any()
 
@@ -178,7 +180,7 @@ object EarlyEnter : Module(
 
     init {
         statusHud.enabled = true
-        SpLog.info("earlyenter", "init: schizo=$schizoMode swapBack=$swapBack delay=100..${maxActionDelay.toInt()}ms verify=${verifyWindow}s phoenix=$pheonixPet bonzoFirst=$bonzoFirst sgdtInterval=${sgdtInterval}s screenTitles='$screenTitles'")
+        SpLog.info("earlyenter", "init: schizo=$schizoMode swapBack=$swapBack delay=100..${maxActionDelay.toInt()}ms verify=${verifyWindow}s phoenix=$pheonixPet bonzoFirst=$bonzoFirst sgdtInterval=${sgdtInterval}s screenTitles='$screenTitles' onlyInDungeons=$onlyInDungeons onlyInGoldor=$onlyInGoldor")
         SchizoLeapInput.registerHandler(::shouldWaitForSchizoKeypress)
 
         // your own proc lines are only sent to you, so your own state here is exact (see odin's InvincibilityTimer).
@@ -188,7 +190,7 @@ object EarlyEnter : Module(
             val kind = MaskKind.match(message)
             val phoenix = kind == null && phoenixLine.matches(message)
             if (kind == null && !phoenix) return@on
-            if (!runCatching { DungeonUtils.inDungeons }.getOrDefault(false)) return@on
+            if (onlyInDungeons && !runCatching { DungeonUtils.inDungeons }.getOrDefault(false)) return@on
             if (phoenix) onPhoenixPop(synthetic = false)
             else kind?.let { onPop(it, System.currentTimeMillis(), synthetic = false) }
         }
@@ -670,17 +672,19 @@ object EarlyEnter : Module(
         val onGoldorFloor = runCatching { DungeonUtils.isFloor(7) }.getOrDefault(false)
         // dynamic: any goldor sit counts (sections 1-4 + core recore sits)
         val inGoldorSection = GoldorTracker.section in 1..5
-        if (!inBoss) {
-            SpLog.info("earlyenter", "reaction blocked: not in a boss fight (inBoss=$inBoss) - swap chain held")
-            return false
-        }
-        if (!onGoldorFloor) {
-            SpLog.info("earlyenter", "reaction blocked: boss fight is not on the goldor floor (isFloor7=$onGoldorFloor) - swap chain held")
-            return false
-        }
-        if (!inGoldorSection) {
-            SpLog.info("earlyenter", "reaction blocked: goldor section=${GoldorTracker.section} not in 1..5 - swap chain held")
-            return false
+        if (onlyInGoldor) {
+            if (!inBoss) {
+                SpLog.info("earlyenter", "reaction blocked: not in a boss fight (inBoss=$inBoss) - swap chain held")
+                return false
+            }
+            if (!onGoldorFloor) {
+                SpLog.info("earlyenter", "reaction blocked: boss fight is not on the goldor floor (isFloor7=$onGoldorFloor) - swap chain held")
+                return false
+            }
+            if (!inGoldorSection) {
+                SpLog.info("earlyenter", "reaction blocked: goldor section=${GoldorTracker.section} not in 1..5 - swap chain held")
+                return false
+            }
         }
         return true
     }
