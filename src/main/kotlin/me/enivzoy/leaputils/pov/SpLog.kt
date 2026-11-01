@@ -23,21 +23,21 @@ object SpLog {
                 Files.move(file, dir.resolve("savepoint.log.old"), StandardCopyOption.REPLACE_EXISTING)
             }
         }
-        write("---", "session", "=== log started ${LocalDateTime.now().format(dateFmt)} ===")
+        write("---", "session", "=== log started ${LocalDateTime.now().format(dateFmt)} ===", "savepoint.log")
     }
 
-    fun info(tag: String, msg: String) = write("INFO", tag, msg)
+    fun info(tag: String, msg: String, fileName: String = "savepoint.log") = write("INFO", tag, msg, fileName)
 
-    fun warn(tag: String, msg: String) = write("WARN", tag, msg)
+    fun warn(tag: String, msg: String, fileName: String = "savepoint.log") = write("WARN", tag, msg, fileName)
 
-    fun err(tag: String, msg: String) = write("ERR!", tag, msg)
+    fun err(tag: String, msg: String, fileName: String = "savepoint.log") = write("ERR!", tag, msg, fileName)
 
-    private fun write(level: String, tag: String, msg: String) {
+    private fun write(level: String, tag: String, msg: String, fileName: String) {
         synchronized(lock) {
             runCatching {
                 Files.createDirectories(dir)
                 Files.writeString(
-                    file,
+                    dir.resolve(fileName),
                     "${LocalTime.now().format(timeFmt)} [$level/$tag] $msg\n",
                     StandardOpenOption.CREATE,
                     StandardOpenOption.APPEND

@@ -45,6 +45,9 @@ import kotlin.math.roundToInt
 // on a timer (default 3s = the goldor tick odin's TickTimers shows, 60t) so the flow can be watched outside a
 // run; it stops on floor enter / world load so a forgotten rig can't fire fake pops in a real one.
 // /leaputils eereset clears the timers, pops and queues without toggling the module.
+// EarlyEnter writes to its own dedicated log file (config/leaputils/maskhelper.log) through here
+private fun earlyEnterLog(tag: String, msg: String) = SpLog.info(tag, msg, "maskhelper.log")
+
 object EarlyEnter : Module(
     name = "EarlyEnter",
     category = Category.custom("Leap Utils", 860, 10),
@@ -180,7 +183,7 @@ object EarlyEnter : Module(
 
     init {
         statusHud.enabled = true
-        SpLog.info("earlyenter", "init: schizo=$schizoMode swapBack=$swapBack delay=100..${maxActionDelay.toInt()}ms verify=${verifyWindow}s phoenix=$pheonixPet bonzoFirst=$bonzoFirst sgdtInterval=${sgdtInterval}s screenTitles='$screenTitles' onlyInDungeons=$onlyInDungeons onlyInGoldor=$onlyInGoldor")
+        earlyEnterLog("earlyenter", "init: schizo=$schizoMode swapBack=$swapBack delay=100..${maxActionDelay.toInt()}ms verify=${verifyWindow}s phoenix=$pheonixPet bonzoFirst=$bonzoFirst sgdtInterval=${sgdtInterval}s screenTitles='$screenTitles' onlyInDungeons=$onlyInDungeons onlyInGoldor=$onlyInGoldor")
         SchizoLeapInput.registerHandler(::shouldWaitForSchizoKeypress)
 
         // your own proc lines are only sent to you, so your own state here is exact (see odin's InvincibilityTimer).
@@ -255,7 +258,7 @@ object EarlyEnter : Module(
                 synchronized(lock) {
                     // a new section means the death-tick pocket moved on; a fresh sit gets fresh pops
                     if (poppedKinds.isNotEmpty()) {
-                        SpLog.info("earlyenter", "section ${prev}->$sec; resetting pop chain (${poppedKinds.joinToString("+")})")
+                        earlyEnterLog("earlyenter", "section ${prev}->$sec; resetting pop chain (${poppedKinds.joinToString("+")})")
                         poppedKinds.clear()
                     }
                     closedChain = false
@@ -282,16 +285,16 @@ object EarlyEnter : Module(
         synchronized(lock) {
             maskCdTicks[kind] = (seconds ?: kind.cooldownSeconds) * 20
             if (pheonixPet && !phoenixPopped) {
-                SpLog.info("earlyenter", "POP ${kind.name}${if (synthetic) " [SGDT]" else ""} cd=${seconds ?: kind.cooldownSeconds}s ignored - Pheonix Pet mode: the phoenix hasn't popped yet")
+                earlyEnterLog("earlyenter", "POP ${kind.name}${if (synthetic) " [SGDT]" else ""} cd=${seconds ?: kind.cooldownSeconds}s ignored - Pheonix Pet mode: the phoenix hasn't popped yet")
                 return@synchronized
             }
             val firstPopOfKind = poppedKinds.add(kind)
-            SpLog.info(
+            earlyEnterLog(
                 "earlyenter",
                 "POP ${kind.name}${if (synthetic) " [SGDT]" else ""} cd=${seconds ?: kind.cooldownSeconds}s popped=${poppedKinds.joinToString("+")}"
             )
             if (!firstPopOfKind) {
-                SpLog.info("earlyenter", "${kind.name} already popped this section, ignoring repeat proc line")
+                earlyEnterLog("earlyenter", "${kind.name} already popped this section, ignoring repeat proc line")
                 return@synchronized
             }
             if (poppedKinds.size >= 2 && !closedChain) {
@@ -308,7 +311,7 @@ object EarlyEnter : Module(
                 reaction = "swap"
                 target = kind.other
             } else {
-                SpLog.info("earlyenter", "a swap is already armed, ignoring extra pop")
+                earlyEnterLog("earlyenter", "a swap is already armed, ignoring extra pop")
             }
         }
         when (reaction) {
@@ -323,7 +326,7 @@ object EarlyEnter : Module(
             phoenixPopped = true
             phoenixCdTicks = PHOENIX_COOLDOWN_SECONDS * 20
         }
-        SpLog.info("earlyenter", "POP PHOENIX${if (synthetic) " [SGDT]" else ""} cd=${PHOENIX_COOLDOWN_SECONDS}s${if (pheonixPet) " - swap gate open" else ""}")
+        earlyEnterLog("earlyenter", "POP PHOENIX${if (synthetic) " [SGDT]" else ""} cd=${PHOENIX_COOLDOWN_SECONDS}s${if (pheonixPet) " - swap gate open" else ""}")
         modMessage("[EarlyEnter] \u00a7aphoenix popped\u00a7f \u00a78(${if (synthetic) "sgdt" else "proc"})\u00a7f${if (pheonixPet) " \u00a77- swaps unlocked" else ""}")
     }
 
@@ -377,7 +380,7 @@ object EarlyEnter : Module(
             val head = headMatchOrNull()
             if (head != null) {
                 synchronized(lock) { originalHelmet = head }
-                if (verboseLog) SpLog.info("earlyenter", "open '$title': original helmet = ${head.render()} (uuid='${head.uuid}')")
+                if (verboseLog) earlyEnterLog("earlyenter", "open '$title': original helmet = ${head.render()} (uuid='${head.uuid}')")
             }
         }
         dumpScreenItems(container)
@@ -391,25 +394,25 @@ object EarlyEnter : Module(
                     // after EVERY equip click, and a restore here would cut the mask chain short - the golden
                     // would go back on between the two masks and the chain would end with a mask on your head
                     if (!chainDue) {
-                        if (verboseLog) SpLog.info("earlyenter", "open '$title': swap-back pending but the end sequence hasn't started (not both masks popped), leaving it to the chain")
+                        if (verboseLog) earlyEnterLog("earlyenter", "open '$title': swap-back pending but the end sequence hasn't started (not both masks popped), leaving it to the chain")
                     } else {
                         push(Restore(orig, now), now)
-                        SpLog.info("earlyenter", "open '$title': queue swap-back -> ${orig.render()}")
+                        earlyEnterLog("earlyenter", "open '$title': queue swap-back -> ${orig.render()}")
                         modMessage("[EarlyEnter] reopening: swapping back to your original helmet")
                     }
-                } else if (verboseLog) SpLog.info("earlyenter", "open '$title': a swap-back is already queued, leaving it")
+                } else if (verboseLog) earlyEnterLog("earlyenter", "open '$title': a swap-back is already queued, leaving it")
             }
         }
         if (verboseLog) {
             val popped = synchronized(lock) { poppedKinds.joinToString("+") }
-            SpLog.info("earlyenter", "tracked screen open title='$title' section=${GoldorTracker.section} popped=$popped staleDropped=$staleDropped")
+            earlyEnterLog("earlyenter", "tracked screen open title='$title' section=${GoldorTracker.section} popped=$popped staleDropped=$staleDropped")
         }
     }
 
     private fun closeScreenInternal() {
         if (verboseLog && inScreen) {
             val popped = synchronized(lock) { poppedKinds.joinToString("+") }
-            SpLog.info("earlyenter", "screen closed; popped=$popped queued=${actions.size}")
+            earlyEnterLog("earlyenter", "screen closed; popped=$popped queued=${actions.size}")
         }
         if (inScreen) {
             inScreen = false
@@ -432,17 +435,17 @@ object EarlyEnter : Module(
                     val hit = orig.let { findRestoreSlot(container, it) }
                     if (hit != null) {
                         runCatching { mc.player?.clickSlot(hit.index) }
-                        SpLog.info("earlyenter", "restore-before-close: clicked ${hit.renderForLog}")
+                        earlyEnterLog("earlyenter", "restore-before-close: clicked ${hit.renderForLog}")
                         modMessage("[EarlyEnter] helmet back on; closing the screen")
                         synchronized(lock) { swapBackPending = false; actions.remove(action) }
                         // no verify staging on this path - click the helmet back and let the shared close tail
                         // right below put the screen down straight away
                     } else if (verboseLog) {
-                        SpLog.info("earlyenter", "restore-before-close: original (${orig.render()}) not in the inventory region (already on the head?), closing")
+                        earlyEnterLog("earlyenter", "restore-before-close: original (${orig.render()}) not in the inventory region (already on the head?), closing")
                     }
                 }
                 modMessage("[EarlyEnter] \u00a7cboth masks popped\u00a7f - closing the screen")
-                SpLog.info("earlyenter", "CLOSE screen ${if (orig != null) "(original helmet not restored!)" else ""}")
+                earlyEnterLog("earlyenter", "CLOSE screen ${if (orig != null) "(original helmet not restored!)" else ""}")
                 synchronized(lock) { actions.remove(action) }
                 mc.gui.setScreen(null)
                 // the sit is over - re-arm the next death's pop chain instead of staying stuck in the
@@ -457,7 +460,7 @@ object EarlyEnter : Module(
                 // confirm - the client's worn-helmet data lags or freezes behind the server on hypixel, so
                 // the inventory region is the only truth used here
                 if (action.clickedUuid.isNotEmpty() && !invRegionHoldsUuid(container, action.clickedUuid)) {
-                    SpLog.info("earlyenter", "restore: original helmet equipped (it left the inventory after try=${action.tries})")
+                    earlyEnterLog("earlyenter", "restore: original helmet equipped (it left the inventory after try=${action.tries})")
                     modMessage("[EarlyEnter] \u00a7ahelmet back on\u00a7f \u00a78(try ${action.tries})")
                     synchronized(lock) {
                         swapBackPending = false
@@ -467,7 +470,7 @@ object EarlyEnter : Module(
                 }
                 if (action.tries >= 2) {
                     synchronized(lock) { actions.remove(action) }
-                    SpLog.info("earlyenter", "restore: helmet (${action.wanted.render()}) still in your inventory after ${action.tries} click(s), giving up (server rejected the click)")
+                    earlyEnterLog("earlyenter", "restore: helmet (${action.wanted.render()}) still in your inventory after ${action.tries} click(s), giving up (server rejected the click)")
                     return
                 }
                 val hit = findRestoreSlot(container, action.wanted)
@@ -479,11 +482,11 @@ object EarlyEnter : Module(
                     if (now - action.notFoundSince < NOT_FOUND_GIVEUP_MS) {
                         if (!action.loggedMissing) {
                             action.loggedMissing = true
-                            SpLog.info("earlyenter", "restore: original helmet (${action.wanted.render()}) not in the inventory region yet - waiting for hypixel's late sync")
+                            earlyEnterLog("earlyenter", "restore: original helmet (${action.wanted.render()}) not in the inventory region yet - waiting for hypixel's late sync")
                         }
                         synchronized(lock) { action.fireAt = now + RETRY_MS }
                     } else {
-                        SpLog.info("earlyenter", "restore: original helmet never appeared in the inventory region within ${NOT_FOUND_GIVEUP_MS / 1000.0}s - assuming it is on your head, skipping the click")
+                        earlyEnterLog("earlyenter", "restore: original helmet never appeared in the inventory region within ${NOT_FOUND_GIVEUP_MS / 1000.0}s - assuming it is on your head, skipping the click")
                         modMessage("[EarlyEnter] \u00a7e${action.wanted.name} never appeared in your inventory\u00a7f \u00a77- check your helmet")
                         synchronized(lock) {
                             swapBackPending = false
@@ -495,7 +498,7 @@ object EarlyEnter : Module(
                 runCatching { mc.player?.clickSlot(hit.index) }
                 action.tries++
                 action.clickedUuid = hit.uuid
-                SpLog.info("earlyenter", "swap-back click ${hit.renderForLog} (try=${action.tries}); verifying in ${verifyMs() / 1000.0}s")
+                earlyEnterLog("earlyenter", "swap-back click ${hit.renderForLog} (try=${action.tries}); verifying in ${verifyMs() / 1000.0}s")
                 synchronized(lock) { action.fireAt = now + verifyMs() }
             }
             is Swap -> {
@@ -504,14 +507,14 @@ object EarlyEnter : Module(
                 // the swap and let the spent-save tail (original helmet back + close) run the sit down
                 val targetCd = synchronized(lock) { maskCdTicks[action.kind] ?: 0 }
                 if (targetCd > 0) {
-                    SpLog.info("earlyenter", "swap ${action.kind.name}: target mask still on cooldown (${targetCd / 20f}s) - holding swap")
+                    earlyEnterLog("earlyenter", "swap ${action.kind.name}: target mask still on cooldown (${targetCd / 20f}s) - holding swap")
                     return
                 }
                 // one click replaces whatever is on your head - success is the mask leaving your inventory
                 // (the client's worn-helmet data lags behind the server on hypixel, so the inventory is the truth)
                 if (action.clickedUuid.isNotEmpty() && !invRegionHoldsUuid(container, action.clickedUuid)) {
                     reportLanding(container, action)
-                    SpLog.info("earlyenter", "swap ${action.kind.name}: equipped (mask left the inventory after try=${action.tries})")
+                    earlyEnterLog("earlyenter", "swap ${action.kind.name}: equipped (mask left the inventory after try=${action.tries})")
                     modMessage("[EarlyEnter] \u00a7a${action.kind.name.lowercase()} mask equipped\u00a7f \u00a78(try ${action.tries})")
                     synchronized(lock) {
                         swapBackPending = true
@@ -525,7 +528,7 @@ object EarlyEnter : Module(
                         // a rejected bootstrap shouldn't strand the sit: let the next screen open try again
                         if (action.bootstrap) bootstrapped = false
                     }
-                    SpLog.info("earlyenter", "swap ${action.kind.name}: mask still in your inventory after ${action.tries} click(s), giving up (server rejected the click)")
+                    earlyEnterLog("earlyenter", "swap ${action.kind.name}: mask still in your inventory after ${action.tries} click(s), giving up (server rejected the click)")
                     modMessage("[EarlyEnter] \u00a7c${action.kind.name.lowercase()} mask didn't equip\u00a7f \u00a77after 2 clicks - swap manually, and please check the log")
                     return
                 }
@@ -533,7 +536,7 @@ object EarlyEnter : Module(
                 if (hit == null) {
                     if (action.tries == 0) {
                         // the mask is not in the inventory region: it is already on the head, or not carried
-                        if (verboseLog) SpLog.info("earlyenter", "swap ${action.kind.name}: mask not in the inventory region (already equipped or not carried), nothing to click")
+                        if (verboseLog) earlyEnterLog("earlyenter", "swap ${action.kind.name}: mask not in the inventory region (already equipped or not carried), nothing to click")
                         modMessage("[EarlyEnter] \u00a7e${action.kind.name.lowercase()} mask not in your inventory\u00a7f \u00a77- nothing to click")
                         synchronized(lock) { actions.remove(action) }
                     } else {
@@ -554,7 +557,7 @@ object EarlyEnter : Module(
                 runCatching { mc.player?.clickSlot(hit.index) }
                 action.tries++
                 action.clickedUuid = hit.uuid
-                SpLog.info(
+                earlyEnterLog(
                     "earlyenter",
                     "swap click ${action.kind.name} ${hit.renderForLog} (try=${action.tries}); $displaced should land in inventory slot ${action.predictedLandSlot}; verifying in ${verifyMs() / 1000.0}s"
                 )
@@ -578,7 +581,7 @@ object EarlyEnter : Module(
         }
         val now = System.currentTimeMillis()
         push(Swap(first, now, bootstrap = true), now)
-        SpLog.info("earlyenter", "bootstrap: queue first swap -> ${first.name} mask (order ${if (bonzoFirst) "Bonzo->Spirit" else "Spirit->Bonzo"}${if (pheonixPet) ", phoenix gate open" else ""})")
+        earlyEnterLog("earlyenter", "bootstrap: queue first swap -> ${first.name} mask (order ${if (bonzoFirst) "Bonzo->Spirit" else "Spirit->Bonzo"}${if (pheonixPet) ", phoenix gate open" else ""})")
         modMessage("[EarlyEnter] starting the order: clicking the \u00a7a${first.name.lowercase()}\u00a7f mask")
     }
 
@@ -643,11 +646,11 @@ object EarlyEnter : Module(
         if (at < 0) return
         val item = container.menu.slots.getOrNull(at)?.item
         if (item == null || item.isEmpty) {
-            SpLog.info("earlyenter", "swap ${action.kind.name}: predicted landing slot $at is still empty (hypixel syncs the displaced item late)")
+            earlyEnterLog("earlyenter", "swap ${action.kind.name}: predicted landing slot $at is still empty (hypixel syncs the displaced item late)")
             return
         }
         val isOriginal = synchronized(lock) { originalHelmet?.matches(item) == true }
-        SpLog.info(
+        earlyEnterLog(
             "earlyenter",
             "swap ${action.kind.name}: slot $at now holds id='${runCatching { item.itemId }.getOrNull().orEmpty()}' '${cleanItemName(item)}'" +
                 if (isOriginal) " - that's your original helmet, as predicted" else ""
@@ -678,15 +681,15 @@ object EarlyEnter : Module(
         val inGoldorSection = GoldorTracker.section in 1..5
         if (onlyInGoldor) {
             if (!inBoss) {
-                SpLog.info("earlyenter", "reaction blocked: not in a boss fight (inBoss=$inBoss) - swap chain held")
+                earlyEnterLog("earlyenter", "reaction blocked: not in a boss fight (inBoss=$inBoss) - swap chain held")
                 return false
             }
             if (!onGoldorFloor) {
-                SpLog.info("earlyenter", "reaction blocked: boss fight is not on the goldor floor (isFloor7=$onGoldorFloor) - swap chain held")
+                earlyEnterLog("earlyenter", "reaction blocked: boss fight is not on the goldor floor (isFloor7=$onGoldorFloor) - swap chain held")
                 return false
             }
             if (!inGoldorSection) {
-                SpLog.info("earlyenter", "reaction blocked: goldor section=${GoldorTracker.section} not in 1..5 - swap chain held")
+                earlyEnterLog("earlyenter", "reaction blocked: goldor section=${GoldorTracker.section} not in 1..5 - swap chain held")
                 return false
             }
         }
@@ -722,7 +725,7 @@ object EarlyEnter : Module(
             if (s.item.isEmpty) null
             else "$i=${runCatching { s.item.itemId }.getOrNull().orEmpty().ifEmpty { "id?" }} '${cleanItemName(s.item)}' x${s.item.count}"
         }
-        SpLog.info("earlyenter", "screen contents (${container.menu.slots.size} slots): ${items.joinToString(" ").take(1500)}")
+        earlyEnterLog("earlyenter", "screen contents (${container.menu.slots.size} slots): ${items.joinToString(" ").take(1500)}")
     }
 
     private fun statusLine(): String? {
@@ -792,10 +795,10 @@ object EarlyEnter : Module(
         }
         if (nowRunning) {
             val order = if (bonzoFirst) "Bonzo -> Spirit" else "Spirit -> Bonzo"
-            SpLog.info("earlyenter", "SGDT started: fake death tick every ${sgdtInterval}s, order Phoenix -> $order")
+            earlyEnterLog("earlyenter", "SGDT started: fake death tick every ${sgdtInterval}s, order Phoenix -> $order")
             modMessage("[EarlyEnter] \u00a7bSGDT\u00a7f death-tick timer started - one fake pop every ${sgdtInterval}s (Phoenix -> $order)")
         } else {
-            SpLog.info("earlyenter", "SGDT stopped")
+            earlyEnterLog("earlyenter", "SGDT stopped")
             modMessage("[EarlyEnter] \u00a7bSGDT\u00a7f timer stopped")
         }
     }
@@ -819,7 +822,7 @@ object EarlyEnter : Module(
                 sgdtRunning = false
                 sgdtTick = 0
             }
-            SpLog.info("earlyenter", "SGDT queue drained, timer stopped")
+            earlyEnterLog("earlyenter", "SGDT queue drained, timer stopped")
             modMessage("[EarlyEnter] \u00a7bSGDT\u00a7f did all the fake pops, timer stopped")
             return
         }
@@ -836,7 +839,7 @@ object EarlyEnter : Module(
 
     private fun resetRunState(reason: String) {
         synchronized(lock) {
-            if (verboseLog) SpLog.info(
+            if (verboseLog) earlyEnterLog(
                 "earlyenter",
                 "reset ($reason): popped=${poppedKinds.joinToString("+")} queued=${actions.size} swapBackPending=$swapBackPending original=${originalHelmet?.render() ?: "none"}"
             )
