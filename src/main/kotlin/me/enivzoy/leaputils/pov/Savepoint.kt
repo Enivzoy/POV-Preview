@@ -23,10 +23,14 @@ import com.odtheking.odin.utils.skyblock.dungeon.Floor
 import com.odtheking.odin.utils.skyblock.dungeon.M7Phases
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents
 import net.minecraft.client.Minecraft
+import net.minecraft.client.gui.Font
+import net.minecraft.client.gui.GuiGraphicsExtractor
 import net.minecraft.client.gui.screens.Screen
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen
+import net.minecraft.network.chat.Component
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.entity.player.Player
+import java.util.Random
 
 object Savepoint : Module(
     name = "Savepoint",
@@ -117,6 +121,8 @@ object Savepoint : Module(
     val glowB by NumberSetting("Glow B", 0, 0..255, 1, desc = "Legit mode glow blue")
     val glowA by NumberSetting("Glow A", 255, 0..255, 1, desc = "Legit mode glow alpha")
     @Volatile var glowTarget: Player? = null
+    @Volatile var overrideCondition: String? = null
+    @Volatile var overrideConditionStep: Int = 1
     val section1Spotter by SelectorSetting("Section 1 Spotter", DungeonClass.BERSERK, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER)).hide()
     val section2Spotter by SelectorSetting("Section 2 Spotter", DungeonClass.MAGE, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER)).hide()
     val section3Spotter by SelectorSetting("Section 3 Spotter", DungeonClass.HEALER, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER)).hide()
@@ -291,6 +297,44 @@ object Savepoint : Module(
             if (leapedThisMenu || paused) return@on
 
             if (schizoMode) {
+                if (overrideCondition != null) {
+                    val parts = overrideCondition!!.split(".")
+                    val stageId = parts.take(parts.size - 1).joinToString(".")
+                    val stepNum = parts.last().toIntOrNull() ?: 1
+                    val stage = SpStage.entries.firstOrNull { it.id == stageId }
+                    if (stage != null) {
+                        val step = SpStep(stage, stepNum.coerceIn(1, stage.steps))
+                        val rules = buildRules()
+                        val cell = SpCell(stage, step.step, myClassCached ?: DungeonClass.MAGE)
+                        val rule = rules[cell]
+                        if (rule != null && rule.target != SpTgt.NONE) {
+                            val targetClass = when (rule.target) {
+                                SpTgt.BERSERK -> DungeonClass.BERSERK
+                                SpTgt.ARCHER -> DungeonClass.ARCHER
+                                SpTgt.MAGE -> DungeonClass.MAGE
+                                SpTgt.TANK -> DungeonClass.TANK
+                                SpTgt.HEALER -> DungeonClass.HEALER
+                                else -> null
+                            }
+                            val teammate = if (targetClass != null) {
+                                runCatching { DungeonUtils.leapTeammates }.getOrDefault(emptyList())
+                                    .firstOrNull { it.clazz == targetClass && !it.isDead }
+                            } else {
+                                null
+                            }
+                            glowTarget = teammate?.let { OdinAccess.entityOf(it) }
+                            lastStatus = "Trigger: $overrideCondition -> ${rule.target.label}"
+                        } else {
+                            glowTarget = null
+                            lastStatus = "Trigger: $overrideCondition (no rule)"
+                        }
+                    } else {
+                        glowTarget = null
+                        lastStatus = "Trigger: $overrideCondition (invalid stage)"
+                    }
+                    return@on
+                }
+
                 val steps = activeSteps()
                 if (steps.isEmpty()) {
                     glowTarget = null
@@ -311,6 +355,8 @@ object Savepoint : Module(
                         ?.let { OdinAccess.entityOf(it) }
                     else -> null
                 }
+                val targetIdx = if (plan is SpPlan.Leap) findTargetIndex(plan.target.name) else -1
+                if (targetIdx >= 0) drawEntityGlow(guiGraphics, targetIdx, if (plan is SpPlan.Leap) plan.target.name else "")
                 lastStatus = when (plan) {
                     is SpPlan.Hold -> "Holding: ${plan.label}"
                     is SpPlan.Wait -> "Waiting: ${plan.reason}"
@@ -973,4 +1019,113 @@ object Savepoint : Module(
         lastTrackerSection = GoldorTracker.section
         lastStatus = null
     }
+
+    internal fun drawEntityGlow(gfx: GuiGraphicsExtractor, targetIndex: Int, targetName: String) {
+        val mc = Minecraft.getInstance()
+        val guiWidth = mc.window.width
+        val guiHeight = mc.window.height
+        val splitX = guiWidth / 2
+        val splitY = guiHeight / 2
+
+        val column = targetIndex % 2
+        val row = targetIndex / 2
+        val x0 = if (column == 0) 0 else splitX
+        val x1 = if (column == 0) splitX else guiWidth
+        val y0 = if (row == 0) 0 else splitY
+        val y1 = if (row == 0) splitY else guiHeight
+
+        val r = glowR / 255f
+        val g = glowG / 255f
+        val b = glowB / 255f
+        val a = glowA / 255f
+
+        // Draw a glow around the quadrant box (the box Odin draws for this teammate)
+        // The box is inset from the quadrant edges; draw a glow rectangle covering it
+        val inset = 10
+        val gx0 = x0 + inset
+        val gy0 = y0 + inset
+        val gx1 = x1 - inset
+        val gy1 = y1 - inset
+
+        // Multi-layer glow: outer layers dimmer, inner layers brighter
+        for (i in 4 downTo 1) {
+            val alpha = (a * 0.25f * (5 - i)).coerceIn(0f, 1f)
+            val color = ((alpha * 255).toInt() shl 24) or ((r * 255).toInt() shl 16) or ((g * 255).toInt() shl 8) or (b * 255).toInt()
+            val expand = i * 3
+            gfx.fill(gx0 - expand, gy0 - expand, gx1 + expand, gy1 + expand, color)
+        }
+
+        // Core bright outline
+        val coreColor = ((a * 255).toInt() shl 24) or ((r * 255).toInt() shl 16) or ((g * 255).toInt() shl 8) or (b * 255).toInt()
+        gfx.fill(gx0 - 2, gy0 - 2, gx1 + 2, gy1 + 2, coreColor)
+    }
+
+    /** Find the index of the target teammate in the leap menu list. */
+    private fun findTargetIndex(targetName: String): Int {
+        val teammates = runCatching { DungeonUtils.leapTeammates }.getOrDefault(emptyList())
+        for ((i, t) in teammates.withIndex()) {
+            if (nameKey(t.name) == nameKey(targetName)) return i
+        }
+        return -1
+    }
+
+
+/**
+ * Dummy leap menu screen for testing legit mode glow without being in a real dungeon.
+ * Shows dummy players in 4 quadrants with random names up to 8 characters.
+ */
+}
+
+class DummyLeapScreen : Screen(Component.literal("Spirit Leap")) {
+
+    private val dummyNames = mutableListOf<String>()
+
+    init {
+        val rand = Random(42L)
+        val baseNames = listOf("Alpha", "Beta", "Gamma", "Delta", "Echo", "Foxtrot", "Golf", "Hotel")
+        for (i in 0 until 4) {
+            val name = baseNames[i] + "_" + (rand.nextInt(10000) + 1)
+            dummyNames.add(name.take(8))
+        }
+    }
+
+    override fun extractRenderState(gfx: GuiGraphicsExtractor, mouseX: Int, mouseY: Int, partialTick: Float) {
+        super.extractRenderState(gfx, mouseX, mouseY, partialTick)
+
+        val mc = Minecraft.getInstance()
+        val font: Font = mc.font
+        val width = this.width
+        val height = this.height
+        val halfW = width / 2
+        val halfH = height / 2
+
+        val positions = listOf(
+            Pair(10, 10), Pair(halfW + 10, 10),
+            Pair(10, halfH + 10), Pair(halfW + 10, halfH + 10)
+        )
+
+        for ((idx, pos) in positions.withIndex()) {
+            if (idx >= dummyNames.size) break
+            val name = dummyNames[idx]
+            val x = pos.first
+            val y = pos.second
+
+            gfx.fill(x, y, x + 140, y + 80, 0x60000000)
+            gfx.fill(x, y, x + 140, y + 4, 0xFF00FF00.toInt())
+            gfx.fill(x, y + 76, x + 140, y + 80, 0xFF00FF00.toInt())
+            gfx.fill(x, y, x + 4, y + 80, 0xFF00FF00.toInt())
+            gfx.fill(x + 136, y, x + 140, y + 80, 0xFF00FF00.toInt())
+
+            gfx.text(name, x + 8, y + 10, Colors.WHITE)
+
+            val classes = listOf("BERSERK", "ARCHER", "MAGE", "HEALER")
+            gfx.text(classes[idx % classes.size], x + 8, y + 24, Colors.MINECRAFT_GRAY)
+
+            if (Savepoint.glowTarget != null && Savepoint.glowTarget!!.name.string == name) {
+                Savepoint.drawEntityGlow(gfx, idx, name)
+            }
+        }
+    }
+
+    override fun isPauseScreen(): Boolean = false
 }

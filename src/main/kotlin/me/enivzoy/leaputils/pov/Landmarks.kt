@@ -160,6 +160,29 @@ object LeapUtilsCommands {
                                 Command.SINGLE_SUCCESS
                             }
                     )
+                    .then(
+                        ClientCommands.literal("dummy")
+                            .executes {
+                                val mc = Minecraft.getInstance()
+                                val screen = DummyLeapScreen()
+                                mc.schedule { mc.setScreenAndShow(screen) }
+                                modMessage("[LeapUtils] opened dummy leap menu")
+                                Command.SINGLE_SUCCESS
+                            }
+                    )
+                    .then(
+                        ClientCommands.literal("trigger")
+                            .then(
+                                ClientCommands.argument("condition", StringArgumentType.word())
+                                    .executes { ctx ->
+                                        val condition = StringArgumentType.getString(ctx, "condition")
+                                        Savepoint.overrideCondition = condition
+                                        Savepoint.overrideConditionStep = 1
+                                        modMessage("[LeapUtils] trigger set: $condition")
+                                        Command.SINGLE_SUCCESS
+                                    }
+                            )
+                    )
             )
         }
     }
