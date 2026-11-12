@@ -1,0 +1,13 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "me.enivzoy.leaputils.mixin.odin",
+  "compatibilityLevel": "JAVA_25",
+  "client": [
+    "HudElementMixin",
+    "NumberSettingNoneMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

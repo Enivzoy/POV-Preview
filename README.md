@@ -2,34 +2,50 @@
 
 Utilities for Odin's Spirit Leap menu - renders each teammate's first-person view into their quarter of the Leap menu, plus auto leap modules for blood rush and the M7 boss phases.
 
-![nothing to see here](https://img.shields.io/badge/Minecraft-26.2-blue) ![Odin](https://img.shields.io/badge/Odin-0.3.6-9cf)
+![nothing to see here](https://img.shields.io/badge/Minecraft-26.3-blue) ![Odin](https://img.shields.io/badge/Odin-0.4.0-9cf)
 
 ## What it does
 Render each teammate's view into the four quadrants of the Odin Spirit Leap menu.
-Everything is done client-side hence no real and this provides no less information then a discord screenshare.
+
+Each view is drawn from that teammate's own shared position and look, over your own block meshes - so you pick a leap by looking at where it lands rather than by reading a name. Teammates you cannot see are still drawn from the last pose your game had of them, or from where the dungeon map puts them.
 
 On top of that theres two auto leap modules, Savepoint and Blood Rush, both explained below.
 
 ## Requirements
 - Not a requirement but any motion blur mod is reccomended since it will hide the imperfections i reccomend [athen](https://github.com/skies-starred/Athen).
-- Minecraft 26.2
-- Fabric Loader 0.19.3+
+- Minecraft 26.3
+- Fabric Loader 0.19.5+
 - Fabric API
-- Odin 0.3.6 (`LeapMenu` must be enabled)
+- Odin 0.4.0 (`LeapMenu` must be enabled)
 - Fabric Language Kotlin
 
 ## POV Previews settings
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| Previews Per [Frame | 1 | How many of the four feeds are re-rendered each frame. 4 is expensive but smoother. |
-| Resolution | 0.75 | Relative scale per quadrant |
-| Opacity | 1.0 | Opacity.. |
-| Head Smoothing | Vanilla | **Vanilla** lerps the head the way the game already does (smooth, ~3 ticks behind the server). **Raw** uses the newest pose the server sent (lowest latency, 20 Hz(1/20 s) steps). |
-| Max Distance | 2000 | Upto how much distance should it start feeding. |
-| Show Cost | on | Ms Loss for the previews added to the last frame and how many feeds are live. |
-| Disable On Error | on | Turn the previews off for the session if one throws. |
-]()
+| Prerender | on | Builds the whole dungeon and the boss arena in the background while you're in a dungeon, so the leap menu only has to draw. Room geometry is kept across runs either way. |
+| Use shared POVs | on | Draws teammates who share from their own view (exact and smooth). Off: only from what your game sees of them, and the map's guess out of range. |
+| Sharing FPS | 60 | How many times a second your look goes to teammates (whether or not this module is on). Higher is smoother for them. At the lowest it reads **off** and nothing of yours is shared. |
+| Only In Blood Rush | off | Shows the views on blood rush: from the dungeon starting until the blood door opens. Adds to the other Only In place; neither ticked is everywhere. |
+| Only In Terms | off | Shows the views in terms: F7/M7 phase 3 (the terminals, devices and levers, and the Goldor split after them until you drop to Necron). Adds to the other Only In place; neither ticked is everywhere. |
+| HUDs Over Views | Mod HUDs | None: just the views. Mod HUDs: every mod's HUD (HUD-editor timers, other mods' HUDs, and titles such as alerts) but not Odin's Dungeon Map or vanilla's HUD. All: everything, maps and vanilla's HUD too. The leap menu's own boxes and names stay on top either way. |
+| POV resolution | 100% | How sharp the views are drawn. Lower is faster on weaker cards; they're scaled up to fill their quarter of the screen. |
+| View distance | 96 blocks | How far the views draw, fading into the sky over the last stretch. Lower is faster. |
+| Debug info | off | Over the views: the relay and TURN connections, each teammate's route and one-way delays both ways, frames a second, losses and buffering. |
+
+### Sharing your view with your party
+
+Your position, look and held item are sent to the other games in your run so they can draw you. Frames go peer to peer over Cloudflare TURN when that is up, and through the relay otherwise.
+
+The relay and the room-geometry bundles are hosted by default. To run your own, put a `pov-server.properties` in `config/leaputils/`:
+
+```properties
+relay=wss://your-relay.example.com/pose/api/
+mesh=https://your-cdn.example.com/adr/mesh/
+```
+
+`relay` is the WebSocket endpoint (the path is the room prefix); `mesh` is where the room geometry bundles are fetched from - the mod builds them itself when they are not there, so it works without a mesh host at all. The same two values can be set with the `leaputils.pov.relay` and `leaputils.pov.mesh` system properties.
+
 ## Savepoint
 
 Leap helper for m7/f7 according to m7g roles/adg roles/custom roles  
@@ -101,4 +117,4 @@ Open the project in IntelliJ IDEA with JDK 25 and run the Gradle `build`.
 .\gradlew build
 ```
 
-Tested on Odin 0.3.6 (release commit `833e053`) on Minecraft 26.2.
+Tested on Odin 0.4.0 on Minecraft 26.3.

@@ -17,11 +17,6 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Title screen tweaks: drops the three square icon buttons (friends / language / accessibility) and squeezes
- * a "Custom Planner" button into the bottom row between Options and Quit Game. Runs at the tail of init() so
- * it re-applies on every rebuild (resize) - vanilla recreates all widgets each pass, so this stays idempotent.
- */
 @Mixin(TitleScreen.class)
 public class TitleScreenMixin {
 
@@ -34,12 +29,12 @@ public class TitleScreenMixin {
         List<AbstractWidget> icons = new ArrayList<>();
         for (var listener : self.children()) {
             if (!(listener instanceof AbstractWidget widget)) continue;
-            // the icons are exactly the friends + sprite (language/accessibility) buttons vanilla adds here
+
             if (widget instanceof FriendsButton || widget instanceof SpriteIconButton) {
                 icons.add(widget);
                 continue;
             }
-            // locale-proof identification: resolve the same translation keys vanilla uses
+
             String msg = widget.getMessage().getString();
             if (msg.equals(Component.translatable("menu.options").getString())) options = widget;
             else if (msg.equals(Component.translatable("menu.quit").getString())) quit = widget;

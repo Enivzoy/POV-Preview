@@ -19,15 +19,6 @@ import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.roundToInt
 
-/**
- * Block-style planner for the Savepoint leap plan - replaces poking ~60 selector settings in Odin's clickgui.
- * Only the Custom matrix is editable (the one the engine actually reads); ADG/MM7G are guide presets that
- * SavepointRemote refreshes from the GitHub repo every launch, and they are loaded INTO Custom on demand.
- *
- * Layout is immediate-mode: every frame the render pass draws the blocks and records clickable regions,
- * and mouse clicks replay those regions - no widget tree, no state to keep in sync. Overlay panels (help /
- * nearest settings) and tooltips draw after the blocks, so their regions win the reversed click check.
- */
 class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
 
     private class Region(
@@ -39,13 +30,13 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
     }
 
     private val regions = ArrayList<Region>()
-    private var scroll = 0f // eased towards scrollTarget every frame - the smooth part
+    private var scroll = 0f
     private var scrollTarget = 0f
     private var lastFrameAt = 0L
     private var contentHeight = 0
     private var armedLoadId: String? = null
     private var armedLoadAt = 0L
-    private var panel: String? = null // "help" | "near" | null
+    private var panel: String? = null
     private var helpScroll = 0f
     private var helpContentH = 0
 
@@ -85,20 +76,16 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
         lastFrameAt = now
         if (armedLoadId != null && now - armedLoadAt > CONFIRM_MS) armedLoadId = null
 
-        // ease scroll towards its target - exponential, so it's frame-rate independent
         val maxScroll = (contentHeight - viewHeight()).coerceAtLeast(0)
         scrollTarget = scrollTarget.coerceIn(0f, maxScroll.toFloat())
         scroll += (scrollTarget - scroll) * (1f - exp(-dt * SCROLL_SPEED))
         if (abs(scrollTarget - scroll) < 0.5f) scroll = scrollTarget
 
-        // content pane
         graphics.fill(0, 0, width, height, Color(8, 8, 10, 0.88f).rgba)
 
-        // ============================== header ==============================
         graphics.text("§lSavepoint Planner§r §7- editing the Custom matrix", MARGIN, 12, Colors.WHITE)
         graphics.text("presets: ${Savepoint.presetStatus()}§7   repo updates on every title screen", MARGIN, 32, Colors.MINECRAFT_GRAY)
 
-        // row 1: plan actions
         var bx = width - MARGIN
         for (btn in listOf(
             Triple("Done", "close the planner and save your edits", { close() }),
@@ -112,7 +99,6 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
             bx -= 6
         }
 
-        // row 2: preset loads + panels + chips mode (built right to left, shown left to right)
         var bx2 = width - MARGIN
         run {
             val w = font.width("Help") + 14
@@ -160,8 +146,6 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
             bx2 -= 6
         }
 
-        // ============================== stage blocks ==============================
-        // scissored to the content area so scrolled blocks can never cover the header or footer
         val chipH = chipHeight()
         val top = HEADER_Y - scroll.roundToInt()
         var y = top
@@ -181,20 +165,16 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
         graphics.disableScissor()
         contentHeight = y - HEADER_Y + scroll.roundToInt()
 
-        // footer hint
         graphics.text(
             "§7hover anything for help · left-click a chip cycles its target · right-click cycles back",
             MARGIN, height - 14, Colors.MINECRAFT_DARK_GRAY
         )
 
-        // ============================== overlay panels ==============================
         when (panel) {
             "help" -> drawHelpPanel(graphics, mouseX, mouseY)
             "near" -> drawNearPanel(graphics, mouseX, mouseY)
         }
 
-        // ============================== tooltip ==============================
-        // drawn last so it sits over everything; topmost hovered region with a tooltip wins
         val hovered = regions.reversed().firstOrNull { it.tooltip != null && it.contains(mouseX.toDouble(), mouseY.toDouble()) }
         hovered?.let { drawTooltip(graphics, it.tooltip!!, mouseX, mouseY) }
     }
@@ -206,17 +186,16 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
         val stage = info.stage
         graphics.roundedRect(x, y, x + w, y + h, GuiTheme.background.rgba, 3f)
 
-        // title bar
         val activeTag = if (info.active) "§a●" else "§8○ off"
         graphics.text("§f§l${stage.id}§r §7${info.title}  $activeTag", x + 8, y + 6, Colors.WHITE)
         info.note?.let { graphics.text(it, x + w - 8 - Minecraft.getInstance().font.width(it), y + 6, Colors.MINECRAFT_DARK_GRAY) }
 
         var sy = y + 20
         for (step in info.steps) {
-            // step label line: "s1 · 1st crystal" - the preset explains what the moment is
+
             val label = Savepoint.stepLabel(stage, step)
             graphics.text("§8s$step" + (label?.let { " §7· §f$it" } ?: ""), x + 8, sy + 1, Colors.WHITE)
-            // the sN itself is hoverable too - same story the chips in this row carry
+
             if (sy + 11 > HEADER_Y && sy < height - 20) regions.add(
                 Region(x + 4, sy, x + w - 4, sy + 11, action = { }, tooltip = stepTooltip(stage, step))
             )
@@ -253,7 +232,7 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
         graphics.roundedRect(x, y, x + w, y + h, fill, 3f)
         val font = Minecraft.getInstance().font
         if (depth) {
-            // full names, stacked: class on top, target below, both tinted by their class color
+
             val classLabel = "§${clazz.colorCode}${clazz.name.lowercase().replaceFirstChar(Char::uppercaseChar)}"
             val tgtLabel = when (tgt) {
                 SpTgt.NONE -> "§8none"
@@ -268,14 +247,12 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
             graphics.text(label, x + (w - font.width(label)) / 2, y + (h - font.lineHeight) / 2 + 1, Colors.WHITE)
         }
 
-        // only clickable while inside the content area - clipped chips must not eat clicks meant for the header/footer
         if (y + h > HEADER_Y && y < height - 20) regions.add(Region(x, y, x + w, y + h, action = { button ->
             val next = cycleTarget(tgt, back = button == 1, rowClass = clazz)
             if (next != tgt) Savepoint.setCellValue(stage, step, clazz, next)
         }, tooltip = chipTooltip(stage, step, clazz, tgt)))
     }
 
-    /** what a step means - label + description from the preset, or a fallback for steps it doesn't describe */
     private fun stepTooltip(stage: SpStage, step: Int): List<String> {
         val font = Minecraft.getInstance().font
         val label = Savepoint.stepLabel(stage, step)
@@ -310,7 +287,6 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
         buttonCycle(graphics, x0, y0, x1, y1, label, mouseX, mouseY, danger, tooltip) { _ -> action() }
     }
 
-    /** like [button] but the action receives the mouse button (0 = left, 1 = right) for cycling */
     private fun buttonCycle(
         graphics: GuiGraphicsExtractor, x0: Int, y0: Int, x1: Int, y1: Int,
         label: String, mouseX: Int, mouseY: Int, danger: Boolean = false, tooltip: List<String>? = null, action: (Int) -> Unit,
@@ -335,7 +311,6 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
         lines.forEachIndexed { i, line -> graphics.text(line, x + 5, y + 4 + i * 10, Colors.WHITE) }
     }
 
-    /** word-wraps [text] (may contain § codes) to [maxW] pixels */
     private fun wrap(text: String, maxW: Int, font: Font): List<String> {
         val lines = ArrayList<String>()
         var cur = ""
@@ -349,8 +324,6 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
         if (cur.isNotEmpty()) lines.add(cur)
         return lines
     }
-
-    // ============================== help panel ==============================
 
     private fun helpLines(): List<String> = listOf(
         "§l§fWhat this is",
@@ -440,7 +413,7 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
         graphics.disableScissor()
 
         if (maxS > 0) {
-            // slim scrollbar on the right edge of the panel
+
             val trackH = viewH
             val thumbH = (trackH * viewH / helpContentH).coerceAtLeast(12)
             val thumbY = py + 28 + ((trackH - thumbH) * (helpScroll / maxS)).roundToInt()
@@ -450,8 +423,6 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
     }
 
     private fun helpViewH(): Int = (height - 100).coerceAtLeast(220) - 40
-
-    // ============================== near settings panel ==============================
 
     private fun drawNearPanel(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int) {
         val font = Minecraft.getInstance().font
@@ -464,7 +435,6 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
             val radX = px + pw - 12 - radW
             var ry = py + 32
 
-            // P4 / P5 rows also carry the target-mode toggle (nearest overrides the rows entirely)
             nearRow(graphics, "P4 necron", px + 12, ry, radX, radW, mouseX, mouseY,
                 mode = Savepoint.necronTargetMode to { Savepoint.necronTargetMode = it },
                 landmark = Savepoint.necronLandmark to { Savepoint.necronLandmark = it },
@@ -489,7 +459,6 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
         }
     }
 
-    /** one settings row: label, optional mode toggle, landmark cycler, radius cycler */
     private fun nearRow(
         graphics: GuiGraphicsExtractor, label: String, x: Int, y: Int, radX: Int, radW: Int, mouseX: Int, mouseY: Int,
         mode: Pair<Savepoint.TargetMode, (Savepoint.TargetMode) -> Unit>?,
@@ -529,7 +498,6 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
         }
     }
 
-    /** generic overlay: scrim (click closes) + rounded panel; [content] draws inside and registers its own regions */
     private inline fun overlayPanel(
         graphics: GuiGraphicsExtractor, title: String, contentH: Int, content: (px: Int, py: Int, pw: Int) -> Unit,
     ) {
@@ -547,7 +515,6 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
         content(px, py, pw)
     }
 
-    /** cycles a landmark setting: "(none)" first, then every captured name; the current value always participates */
     private fun cycleLandmark(current: String, button: Int): String {
         val cur = current.trim()
         val options = (listOf("") + Landmarks.all.keys.toList() + listOf(cur)).distinct()
@@ -556,7 +523,6 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
         else options[(idx + 1) % options.size]
     }
 
-    /** radius steps clamp instead of wrapping - spinning past 128 stays at 128 */
     private fun cycleRadius(current: Int, button: Int): Int {
         val steps = listOf(4, 8, 12, 16, 24, 32, 48, 64, 96, 128)
         val idx = steps.indexOf(current)
@@ -564,12 +530,11 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
             val next = if (button == 1) idx - 1 else idx + 1
             return steps[next.coerceIn(0, steps.size - 1)]
         }
-        // current isn't a listed step - snap towards it on first interaction
+
         return if (button == 1) steps.lastOrNull { it <= current } ?: steps.first()
         else steps.firstOrNull { it >= current } ?: steps.last()
     }
 
-    /** cycles a chip's target; skips the row's own class (leaping to yourself is meaningless) */
     private fun cycleTarget(current: SpTgt, back: Boolean, rowClass: DungeonClass): SpTgt {
         val order = listOf(SpTgt.NONE, SpTgt.BERSERK, SpTgt.ARCHER, SpTgt.MAGE, SpTgt.TANK, SpTgt.HEALER, SpTgt.NEAREST, SpTgt.FIRST)
         var idx = order.indexOf(current).coerceAtLeast(0)
@@ -602,7 +567,7 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
         private const val HEADER_Y = 54
         private const val BLOCK_GAP = 8
         private const val CONFIRM_MS = 5_000L
-        private const val SCROLL_SPEED = 16f // higher = snappier ease
+        private const val SCROLL_SPEED = 16f
         private const val TOOLTIP_W = 190
     }
 }

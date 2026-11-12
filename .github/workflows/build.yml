@@ -36,19 +36,19 @@ jobs:
       - name: Stage jar
         run: |
           mkdir -p dist
-          cp "$(ls build/libs/*.jar | grep -v -- '-sources' | head -n1)" dist/pov-preview-26.2.jar
+          cp "$(ls build/libs/*.jar | grep -v -- '-sources' | head -n1)" dist/pov-preview-26.3.jar
           ls -l dist
 
       - name: Upload jar
         uses: actions/upload-artifact@v7.0.2
         with:
-          path: dist/pov-preview-26.2.jar
+          path: dist/pov-preview-26.3.jar
           if-no-files-found: error
           archive: false
 
       - name: Check if a release is due
         id: release_check
-        if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch
+        if: github.event_name == 'push' && github.ref_name == 'LeapUtils'
         run: |
           last_tag="$(git describe --tags --abbrev=0 --match 'build-*' 2>/dev/null || true)"
           if [ -z "$last_tag" ]; then
@@ -73,7 +73,7 @@ jobs:
         run: |
           tag="${{ steps.release_check.outputs.tag }}"
           last_tag="${{ steps.release_check.outputs.last_tag }}"
-          cp dist/pov-preview-26.2.jar "pov-preview-26.2-${tag}.jar"
+          cp dist/pov-preview-26.3.jar "pov-preview-26.3-${tag}.jar"
 
           if [ -z "$last_tag" ]; then
             range="HEAD"
@@ -88,7 +88,7 @@ jobs:
           } > notes.md
           cat notes.md
 
-          gh release create "$tag" "pov-preview-26.2-${tag}.jar" \
+          gh release create "$tag" "pov-preview-26.3-${tag}.jar" \
             --target "$GITHUB_SHA" \
             --title "Build ${tag#build-}" \
             --notes-file notes.md

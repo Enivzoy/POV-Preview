@@ -50,18 +50,39 @@ enum class SpOnFail {
     ANY_AFTER,
 }
 
+enum class SpObjective(val label: String) {
+    PHASE("phase"),
+    TERMINALS("terminals"),
+    LEVERS("levers"),
+    DEVICES("devices"),
+    GATE("gate"),
+}
+
 data class SpCond(
     val subject: SpSubject = SpSubject.TARGET,
     val mode: SpMode = SpMode.NEAR,
     val landmark: String = "",
+    val x: Double? = null,
+    val y: Double? = null,
+    val z: Double? = null,
     val radius: Double = 0.0,
     val holdMs: Long = 400,
     val anyAfterMs: Long = 0,
     val onFail: SpOnFail = SpOnFail.WAIT,
+    val objective: SpObjective? = null,
+    val objectiveMin: Int = 0,
 ) {
     val effectiveRadius: Double get() = if (radius > 0.0) radius else mode.defaultRadius
+    val hasRawPos: Boolean get() = x != null && y != null && z != null
 
-    fun describe(): String = "${subject.label} ${mode.label} '$landmark' <=${effectiveRadius.toInt()}m"
+    fun describe(): String {
+        val parts = ArrayList<String>(2)
+        objective?.let { parts += "${it.label}>=${objectiveMin}" }
+        if (hasRawPos) parts += "${subject.label} at ($x,$y,$z) <=${effectiveRadius.toInt()}m"
+        else if (landmark.isNotBlank()) parts += "${subject.label} ${mode.label} '$landmark' <=${effectiveRadius.toInt()}m"
+        if (parts.isEmpty()) return "wait ${holdMs}ms"
+        return parts.joinToString(" and ")
+    }
 }
 
 data class SpRule(
@@ -105,6 +126,11 @@ data class SpCtx(
     val myZ: Double? = null,
     val timings: Map<String, Long> = emptyMap(),
     val landmarks: Map<String, SpLandmark> = emptyMap(),
+    val phase: Int = 0,
+    val terminalsDone: Int = 0,
+    val leversDone: Int = 0,
+    val devicesDone: Int = 0,
+    val gateOpen: Boolean = false,
 )
 
 sealed interface SpPlan {
@@ -150,8 +176,11 @@ object SavepointEngine {
             val label = "${sstep.stage.id} step ${sstep.step} -> ${target.name} (${target.clazz.name.lowercase()})"
             val cond = rule.cond ?: return SpPlan.Leap(sstep, target, label)
 
-            val lm = ctx.landmarks[cond.landmark]
-                ?: return SpPlan.Wait(sstep, "landmark '${cond.landmark}' is missing (add it with /leaputils landmark)")
+            cond.objective?.let { obj ->
+                if (!objectiveMet(obj, cond.objectiveMin, ctx)) {
+                    return fail(cond, sstep, "${obj.label} is ${objectiveValue(obj, ctx)}, needs ${cond.objectiveMin}", ctx, target, label)
+                }
+            }
 
             val who: String
             val px: Double?
@@ -172,23 +201,49 @@ object SavepointEngine {
                 return fail(cond, sstep, "$who position unknown", ctx, target, label)
             }
 
+            val lm: SpLandmark
+            if (cond.hasRawPos) {
+                lm = SpLandmark(cond.x!!, cond.y!!, cond.z!!)
+            } else {
+                if (cond.landmark.isBlank()) {
+                    return fail(cond, sstep, "no landmark or coordinates configured", ctx, target, label)
+                }
+                val named = ctx.landmarks[cond.landmark]
+                if (named == null) {
+                    return fail(cond, sstep, "landmark '${cond.landmark}' is missing (capture it with /leaputils landmark)", ctx, target, label)
+                }
+                lm = named
+            }
+
             val dx = px - lm.x
             val dy = py - lm.y
             val dz = pz - lm.z
             val dist = sqrt(dx * dx + dy * dy + dz * dz)
-            if (dist <= cond.effectiveRadius) {
-                val key = "hold:${sstep.key}/${target.name}"
-                val held = ctx.timings[key] ?: 0L
-                return if (held >= cond.holdMs) {
-                    SpPlan.Leap(sstep, target, label)
-                } else {
-                    SpPlan.Hold(sstep, target, key, cond.holdMs, held, "$label while ${cond.describe()}")
-                }
+            if (dist > cond.effectiveRadius) {
+                return fail(cond, sstep, "${target.clazz.name.lowercase()} ${target.name} not within ${cond.effectiveRadius.toInt()}m of ${cond.describe()}", ctx, target, label)
             }
-            return fail(cond, sstep, "${target.clazz.name.lowercase()} ${target.name} not ${cond.mode.label} '${cond.landmark}'", ctx, target, label)
+
+            val key = "hold:${sstep.key}/${target.name}"
+            val held = ctx.timings[key] ?: 0L
+            return if (held >= cond.holdMs) {
+                SpPlan.Leap(sstep, target, label)
+            } else {
+                SpPlan.Hold(sstep, target, key, cond.holdMs, held, "$label while ${cond.describe()}")
+            }
         }
         return SpPlan.Idle
     }
+
+    private fun objectiveValue(obj: SpObjective, ctx: SpCtx): Int = when (obj) {
+        SpObjective.PHASE -> ctx.phase
+        SpObjective.TERMINALS -> ctx.terminalsDone
+        SpObjective.LEVERS -> ctx.leversDone
+        SpObjective.DEVICES -> ctx.devicesDone
+        SpObjective.GATE -> if (ctx.gateOpen) 1 else 0
+    }
+
+    private fun objectiveMet(obj: SpObjective, min: Int, ctx: SpCtx): Boolean =
+        if (obj == SpObjective.GATE) ctx.gateOpen else objectiveValue(obj, ctx) >= min
 
     private fun fail(cond: SpCond, sstep: SpStep, reason: String, ctx: SpCtx, target: SpTmate, label: String): SpPlan =
         when (cond.onFail) {

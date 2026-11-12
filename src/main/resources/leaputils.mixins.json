@@ -4,14 +4,8 @@
   "package": "me.enivzoy.leaputils.mixin",
   "compatibilityLevel": "JAVA_25",
   "client": [
-    "CameraAccessor",
-    "GameRendererInvoker",
-    "GameRendererMixin",
-    "GuiGraphicsExtractorAccessor",
-    "LevelRendererMixin",
-    "LivingEntityAccessor",
-    "Matrix4fStackAccessor",
-    "SectionUpdateTrackerMixin",
+    "PosePovRenderMixin",
+    "PosePovUnderGuiMixin",
     "TitleScreenMixin"
   ],
   "injectors": {

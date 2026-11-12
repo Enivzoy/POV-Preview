@@ -1,13 +1,13 @@
 package me.enivzoy.leaputils.pov
 
 import com.odtheking.odin.utils.skyblock.dungeon.DungeonClass
-import com.odtheking.odin.utils.skyblock.dungeon.DungeonListener
 import com.odtheking.odin.utils.skyblock.dungeon.DungeonPlayer
 import com.odtheking.odin.utils.skyblock.dungeon.DungeonUtils
 import net.minecraft.client.Minecraft
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen
-import kotlin.math.abs
+import java.lang.reflect.Field
 import java.lang.reflect.Method
+import kotlin.math.abs
 
 object OdinAccess {
     private val dungeonUtilsClass = DungeonUtils::class.java
@@ -15,22 +15,22 @@ object OdinAccess {
     private val roomDataClass = com.odtheking.odin.features.impl.dungeon.map.tile.RoomData::class.java
     private val roomClass = com.odtheking.odin.features.impl.dungeon.map.tile.DungeonRoom::class.java
     private val doorHighlightClass = Class.forName("com.odtheking.odin.features.impl.dungeon.DoorHighlight")
-    private val bloodKeyField = doorHighlightClass.getDeclaredField("bloodKey").apply { isAccessible = true }
-    private val bloodOpenedField = doorHighlightClass.getDeclaredField("bloodOpened").apply { isAccessible = true }
+    private val bloodKeyField = findField(doorHighlightClass, "bloodKey")
+    private val bloodOpenedField = findField(doorHighlightClass, "bloodOpened")
     private val dungeonScanClass = Class.forName("com.odtheking.odin.features.impl.dungeon.map.DungeonScan")
     private val doorClass = Class.forName("com.odtheking.odin.features.impl.dungeon.map.tile.DungeonDoor")
-    
-    private val dungeonUtilsInstance: Any = getStaticField(dungeonUtilsClass, "INSTANCE")
-    private val leapMenuInstance: Any = getStaticField(leapMenuClass, "INSTANCE")
-    private val dungeonScanInstance: Any = getStaticField(dungeonScanClass, "INSTANCE")
-    
+
+    private val dungeonUtilsInstance: Any? = getStaticField(dungeonUtilsClass, "INSTANCE")
+    private val leapMenuInstance: Any? = getStaticField(leapMenuClass, "INSTANCE")
+    private val dungeonScanInstance: Any? = getStaticField(dungeonScanClass, "INSTANCE")
+
     private val getInBossMethod = findMethod(dungeonUtilsClass, "getInBoss")
     private val getFloorMethod = findMethod(dungeonUtilsClass, "getFloor")
     private val getCurrentRoomMethod = findMethod(dungeonUtilsClass, "getCurrentRoom")
     private val getCurrentDungeonPlayerMethod = findMethod(dungeonUtilsClass, "getCurrentDungeonPlayer")
     private val getLeapTeammatesMethod = findMethod(dungeonUtilsClass, "getLeapTeammates")
-    private val getF7PhaseMethod = runCatching { findMethod(dungeonUtilsClass, "getF7Phase") }.getOrNull()
-    private val getBossPhaseMethod2 = runCatching { findMethod(dungeonUtilsClass, "getBossPhase") }.getOrNull()
+    private val getF7PhaseMethod = findMethod(dungeonUtilsClass, "getF7Phase")
+    private val getBossPhaseMethod2 = findMethod(dungeonUtilsClass, "getBossPhase")
 
     private val terminalsStatusClass by lazy {
         runCatching { Class.forName("com.odtheking.odin.features.impl.boss.TerminalsStatus") }.getOrNull()
@@ -41,62 +41,64 @@ object OdinAccess {
     private val terminalSectionField by lazy {
         runCatching { terminalsStatusClass?.getDeclaredField("section")?.apply { isAccessible = true } }.getOrNull()
     }
-    
-    private val getPhaseMethod = runCatching { findMethod(dungeonUtilsClass, "getPhase") }.getOrNull()
-    private val getCurrentPhaseMethod = runCatching { findMethod(dungeonUtilsClass, "getCurrentPhase") }.getOrNull()
-    
+
+    private val getPhaseMethod = findMethod(dungeonUtilsClass, "getPhase")
+    private val getCurrentPhaseMethod = findMethod(dungeonUtilsClass, "getCurrentPhase")
+
     private val leapToMethod = findMethod(leapMenuClass, "leapTo", String::class.java, AbstractContainerScreen::class.java)
     private val getDoorsMethod = findMethod(dungeonScanClass, "getDoors")
     private val doorGetTypeMethod = findMethod(doorClass, "getType")
     private val doorGetWorldXMethod = findMethod(doorClass, "getWorldX")
     private val doorGetWorldZMethod = findMethod(doorClass, "getWorldZ")
-    
+
     private val floorNameMethod = findMethod(java.lang.Enum::class.java, "name")
     private val roomDataMethod = findMethod(roomClass, "getData")
     private val roomDataTypeMethod = findMethod(roomDataClass, "getType")
     private val roomDataNameMethod = findMethod(roomDataClass, "getName")
-    
-    private fun getStaticField(clazz: Class<*>, name: String): Any {
-        val field = clazz.getDeclaredField(name)
-        field.isAccessible = true
-        return field.get(null)
+
+    private fun getStaticField(clazz: Class<*>, name: String): Any? =
+        runCatching { clazz.getDeclaredField(name).apply { isAccessible = true }.get(null) }.getOrNull()
+
+    private fun findMethod(clazz: Class<*>, name: String, vararg paramTypes: Class<*>): Method? =
+        runCatching { clazz.getDeclaredMethod(name, *paramTypes).apply { isAccessible = true } }.getOrNull()
+
+    private fun findField(clazz: Class<*>, name: String): Field? =
+        runCatching { clazz.getDeclaredField(name).apply { isAccessible = true } }.getOrNull()
+
+    private fun <T> Method?.call(instance: Any?, vararg args: Any?): T? {
+        val m = this ?: return null
+        return runCatching { m.invoke(instance, *args) as T }.getOrNull()
     }
-    
-    private fun findMethod(clazz: Class<*>, name: String, vararg paramTypes: Class<*>): Method {
-        val method = clazz.getDeclaredMethod(name, *paramTypes)
-        method.isAccessible = true
-        return method
-    }
-    
+
     val inBoss: Boolean
-        get() = getInBossMethod.invoke(dungeonUtilsInstance) as Boolean
-    
+        get() = getInBossMethod.call<Boolean>(dungeonUtilsInstance) ?: false
+
     val floor: com.odtheking.odin.utils.skyblock.dungeon.Floor?
-        get() = getFloorMethod.invoke(dungeonUtilsInstance) as? com.odtheking.odin.utils.skyblock.dungeon.Floor
-    
+        get() = getFloorMethod.call<com.odtheking.odin.utils.skyblock.dungeon.Floor>(dungeonUtilsInstance)
+
     val floorName: String?
-        get() = floor?.let { floorNameMethod.invoke(it) as String }
-    
+        get() = floor?.let { floorNameMethod.call<String>(it) }
+
     val currentRoom: Any?
-        get() = getCurrentRoomMethod.invoke(dungeonUtilsInstance)
-    
+        get() = getCurrentRoomMethod.call<Any>(dungeonUtilsInstance)
+
     val currentRoomData: Any?
-        get() = currentRoom?.let { roomDataMethod.invoke(it) }
-    
+        get() = currentRoom?.let { roomDataMethod.call<Any>(it) }
+
     val currentRoomType: Any?
-        get() = currentRoomData?.let { roomDataTypeMethod.invoke(it) }
-    
+        get() = currentRoomData?.let { roomDataTypeMethod.call<Any>(it) }
+
     val currentDungeonPlayer: DungeonPlayer?
-        get() = getCurrentDungeonPlayerMethod.invoke(dungeonUtilsInstance) as? DungeonPlayer
-    
+        get() = getCurrentDungeonPlayerMethod.call<DungeonPlayer>(dungeonUtilsInstance)
+
     val leapTeammates: List<DungeonPlayer>
-        get() = getLeapTeammatesMethod.invoke(dungeonUtilsInstance) as List<DungeonPlayer>
-    
+        get() = getLeapTeammatesMethod.call<List<DungeonPlayer>>(dungeonUtilsInstance).orEmpty()
+
     val bloodKeyPickedUp: Boolean
-        get() = runCatching { bloodKeyField.getBoolean(null) }.getOrDefault(false)
+        get() = runCatching { bloodKeyField?.getBoolean(null) }.getOrNull() ?: false
 
     val bloodDoorOpened: Boolean
-        get() = runCatching { bloodOpenedField.getBoolean(null) }.getOrDefault(false)
+        get() = runCatching { bloodOpenedField?.getBoolean(null) }.getOrNull() ?: false
 
     val hasBloodKeyBeenPickedUp: Boolean
         get() = bloodKeyPickedUp || bloodDoorOpened
@@ -111,7 +113,7 @@ object OdinAccess {
             }
             return null
         }
-    
+
     val bossPhase: String?
         get() {
             getF7PhaseMethod?.let { m ->
@@ -163,7 +165,7 @@ object OdinAccess {
             }
             return null
         }
-    
+
     private fun stripFormatting(text: String): String {
         val sb = StringBuilder(text.length)
         var i = 0
@@ -188,32 +190,42 @@ object OdinAccess {
         menuHasName(screen, teammate.name)
 
     fun autoLeapTo(teammate: DungeonPlayer, screen: AbstractContainerScreen<*>): Boolean {
+        val leap = leapToMethod
+        if (leap == null) {
+            if (!leapToMissingLogged) {
+                leapToMissingLogged = true
+                me.enivzoy.leaputils.LeapUtils.logger.warn("[LeapUtils] Odin's LeapMenu.leapTo is not where it was: auto-leap is off")
+            }
+            return false
+        }
         return try {
             if (!isLeapAvailable(teammate, screen)) return false
-            leapToMethod.invoke(leapMenuInstance, teammate.name, screen)
+            leap.call<Any>(leapMenuInstance, teammate.name, screen) ?: return false
             true
         } catch (e: Exception) {
             println("[LeapUtils] Failed to leap: ${e.message}")
             false
         }
     }
-    
+
+    private var leapToMissingLogged = false
+
     data class DoorPos(val x: Int, val z: Int)
-    
+
     private fun findWitherDoorPos(): DoorPos? {
-        val doors = runCatching { getDoorsMethod.invoke(dungeonScanInstance) as? Map<*, *> }.getOrNull() ?: return null
+        val doors = getDoorsMethod.call<Map<*, *>>(dungeonScanInstance) ?: return null
         if (doors.isEmpty()) return null
-        
+
         var best: DoorPos? = null
         var bestDist = Double.MAX_VALUE
         for (door in doors.values) {
             if (door == null) continue
-            val type = runCatching { doorGetTypeMethod.invoke(door) }.getOrNull() as? Enum<*> ?: continue
+            val type = doorGetTypeMethod.call<Enum<*>>(door) ?: continue
             val name = type.name
             if (name != "Wither" && name != "Blood") continue
-            val x = runCatching { doorGetWorldXMethod.invoke(door) }.getOrNull() as? Int ?: continue
-            val z = runCatching { doorGetWorldZMethod.invoke(door) }.getOrNull() as? Int ?: continue
-            // Find closest door to player if possible, else just take first found
+            val x = doorGetWorldXMethod.call<Int>(door) ?: continue
+            val z = doorGetWorldZMethod.call<Int>(door) ?: continue
+
             val player = Minecraft.getInstance().player
             val dist = if (player != null) {
                 val dx = x - player.x
@@ -229,18 +241,18 @@ object OdinAccess {
         }
         return best
     }
-    
+
     fun entityOf(teammate: DungeonPlayer): net.minecraft.world.entity.player.Player? = teammateEntity(teammate)
 
     private fun teammateEntity(teammate: DungeonPlayer): net.minecraft.world.entity.player.Player? {
         val mc = Minecraft.getInstance()
         val local = mc.player ?: return null
         val level = mc.level
-        
+
         teammate.entity?.let {
             if (it !== local && !it.isRemoved && it.isAlive && (level == null || it.level() === level)) return it
         }
-        
+
         return level?.players()?.firstOrNull {
             it !== local && !it.isRemoved && it.isAlive && (level == null || it.level() === level) &&
                 (it.name.string.equals(teammate.name, ignoreCase = true) ||
@@ -248,12 +260,12 @@ object OdinAccess {
                     it.scoreboardName.equals(teammate.name, ignoreCase = true))
         }
     }
-    
+
     fun findClosestToWitherDoor(): DungeonPlayer? {
         val door = findWitherDoorPos()
         var closest: DungeonPlayer? = null
         var closestDist = Double.MAX_VALUE
-        
+
         for (teammate in leapTeammates) {
             if (teammate.isDead) continue
             val entity = teammateEntity(teammate) ?: continue
@@ -305,7 +317,7 @@ object OdinAccess {
 
         return closest
     }
-    
+
     fun isAtCoords(x: Int, y: Int, z: Int, leniency: Int): Boolean {
         val mc = Minecraft.getInstance()
         val player = mc.player ?: return false
@@ -313,8 +325,8 @@ object OdinAccess {
                abs(player.y - y) <= leniency &&
                abs(player.z - z) <= leniency
     }
-    
+
     fun getRoomName(roomData: Any): String? {
-        return roomData?.let { roomDataNameMethod.invoke(it) as String }
+        return roomDataNameMethod.call<String>(roomData)
     }
 }

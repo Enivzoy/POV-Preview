@@ -32,20 +32,6 @@ import net.minecraft.world.entity.EquipmentSlot
 import net.minecraft.world.item.ItemStack
 import kotlin.math.roundToInt
 
-// early-enter survival helper: you sit in the goldor death-tick pocket with your gear screen (/stats) held up
-// the whole time, and this does the helmet chores for you:
-//   - the first mask of your order goes onto your head when the screen opens - with "Pheonix Pet" on only
-//     after the pet popped (mask pops before that are ignored), without it the moment the screen is open
-//   - an invincibility pops (spirit/bonzo proc'd a save) -> it clicks the other mask onto your head for you
-//   - the second pop (both on cooldown) -> put your original helmet back on and close
-// the real input is your own proc chat lines - detection is vendored from odin's InvincibilityTimer (its type
-// enum is private, see the same note on engineerclient's MaskTracker): same regexes, same cooldowns, bonzo's
-// scaling cooldown read off the worn head's lore. real pops need nothing extra - the chat handler feeds the
-// same onPop/onPhoenixPop everything else runs on. /leaputils sgdt is a dry-test rig that replays those lines
-// on a timer (default 3s = the goldor tick odin's TickTimers shows, 60t) so the flow can be watched outside a
-// run; it stops on floor enter / world load so a forgotten rig can't fire fake pops in a real one.
-// /leaputils eereset clears the timers, pops and queues without toggling the module.
-// EarlyEnter writes to its own dedicated log file (config/leaputils/maskhelper.log) through here
 private fun earlyEnterLog(tag: String, msg: String) = SpLog.info(tag, msg, "maskhelper.log")
 
 object EarlyEnter : Module(
@@ -57,7 +43,7 @@ object EarlyEnter : Module(
         val itemIds: List<String>,
         val cooldownSeconds: Int,
         val selfLine: Regex,
-        /** display-name fragments, matched after cleaning colour codes and reforge prefixes off ("Necrotic Spirit Mask") */
+
         val nameParts: List<String>,
     ) {
         SPIRIT(
@@ -73,7 +59,6 @@ object EarlyEnter : Module(
 
         val other: MaskKind get() = if (this == SPIRIT) BONZO else SPIRIT
 
-        /** skyblock item id first, then the cleaned display name so reforged / fragged / starred variants are found */
         fun matches(item: ItemStack?): Boolean {
             if (item == null) return false
             val id = runCatching { item.itemId }.getOrNull() ?: ""
@@ -87,13 +72,11 @@ object EarlyEnter : Module(
         }
     }
 
-    /** head item captured before the first module swap; matched by skyblock uuid, then id, then cleaned display name */
     private data class HeadMatch(val id: String, val name: String, val uuid: String = "") {
-        /** the exact instance (same skyblock uuid) - survives the item moving between slots */
+
         fun sameInstance(item: ItemStack): Boolean =
             uuid.isNotBlank() && runCatching { item.itemUUID }.getOrNull().orEmpty() == uuid
 
-        /** same kind of item (skyblock id or cleaned display name) - also matches a different instance */
         fun sameItem(item: ItemStack): Boolean =
             (id.isNotBlank() && runCatching { item.itemId }.getOrNull().orEmpty() == id) ||
                 (name.isNotBlank() && cleanItemName(item) == name)
@@ -101,7 +84,6 @@ object EarlyEnter : Module(
         fun matches(item: ItemStack?): Boolean = item != null && (sameInstance(item) || sameItem(item))
     }
 
-    /** what a slot search landed on, logged verbatim so server-rejected clicks are visible in the log */
     private data class SlotHit(val index: Int, val id: String, val name: String, val count: Int, val uuid: String) {
         val renderForLog: String get() = "slot=$index id='$id' name='$name' count=$count"
     }
@@ -121,50 +103,49 @@ object EarlyEnter : Module(
 
     private val lock = Any()
 
-    private val maskCdTicks = HashMap<MaskKind, Int>()   // remaining cooldown in ticks, like odin's currentCooldown
-    private val poppedKinds = LinkedHashSet<MaskKind>()  // masks that popped since this goldor section started
-    private val actions = mutableListOf<EeAction>()      // queued reactions waiting for their delay / keypress
+    private val maskCdTicks = HashMap<MaskKind, Int>()
+    private val poppedKinds = LinkedHashSet<MaskKind>()
+    private val actions = mutableListOf<EeAction>()
 
-    private var closedChain = false     // both masks popped this section and the end sequence is queued
-    private var lastSection = -1        // goldor section mirror; pop state resets every section change
-    private var inScreen = false        // a tracked swap screen is open right now
+    private var closedChain = false
+    private var lastSection = -1
+    private var inScreen = false
     private var screenOpenedAt = 0L
-    private var originalHelmet: HeadMatch? = null   // head item before the first swap of the run
-    private var swapBackPending = false // a module swap is waiting to be reverted at the end of the sit
-    private var screenDumped = false    // one diagnostics listing per screen open
-    private var rigArmed = false        // the running action chain was created by the sgdt rig (keeps its gate open until it drains)
-    private var phoenixPopped = false   // "Pheonix Pet" gate: the pet's save line was seen this sit
-    private var phoenixCdTicks = 0      // phoenix pet cooldown for the HUD (60s, odin's InvincibilityTimer)
-    private var bootstrapped = false    // the first swap of the order was already initiated this sit
-    private var sgdtPhoenixPending = false // the rig's next fire is the fake phoenix pop that opens the gate
+    private var originalHelmet: HeadMatch? = null
+    private var swapBackPending = false
+    private var screenDumped = false
+    private var rigArmed = false
+    private var phoenixPopped = false
+    private var phoenixCdTicks = 0
+    private var bootstrapped = false
+    private var sgdtPhoenixPending = false
 
-    private var sgdtRunning = false     // /leaputils sgdt fake death-tick timer
+    private var sgdtRunning = false
     private var sgdtTick = 0
     private val sgdtQueue = ArrayDeque<MaskKind>()
 
-    // vendored from odin's InvincibilityTimer (PHOENIX entry): the pet's save line and its 60s cooldown
     private val phoenixLine = Regex("^Your Phoenix Pet saved you from certain death!$")
     private const val PHOENIX_COOLDOWN_SECONDS = 60
 
-    private const val QUEUE_PURGE_MS = 15_000L  // queued swap older than this is from a long-over sit
-    private const val RETRY_MS = 250L           // retry pacing when the item isn't findable in the screen yet
-    private const val NOT_FOUND_GIVEUP_MS = 8_000L // hypixel syncs a displaced item into your inventory late (~3.4s seen)
+    private const val QUEUE_PURGE_MS = 15_000L
+    private const val RETRY_MS = 250L
+    private const val NOT_FOUND_GIVEUP_MS = 8_000L
 
     private sealed class EeAction(val queuedAt: Long) {
-        var fireAt = 0L // 0 = armed and waiting for a schizo keypress instead of the delay
+        var fireAt = 0L
     }
     private class Swap(val kind: MaskKind, queuedAt: Long, val bootstrap: Boolean = false) : EeAction(queuedAt) {
-        // only the render thread touches these, so plain fields are fine
-        var tries = 0        // equip clicks sent; each gets a verify window, one retry, then give up
-        var clickedUuid = "" // skyblock uuid of the clicked stack; it leaves the player-inv region once equipped
-        var predictedLandSlot = -1 // where the item this click displaces off the head should land
+
+        var tries = 0
+        var clickedUuid = ""
+        var predictedLandSlot = -1
     }
     private class Close(queuedAt: Long) : EeAction(queuedAt)
     private class Restore(val wanted: HeadMatch, queuedAt: Long) : EeAction(queuedAt) {
         var tries = 0
         var clickedUuid = ""
         var loggedMissing = false
-        var notFoundSince = 0L // first moment the helmet was missing from the inventory region (it syncs late)
+        var notFoundSince = 0L
     }
 
     private val statusHud by HUD(
@@ -186,8 +167,6 @@ object EarlyEnter : Module(
         earlyEnterLog("earlyenter", "init: schizo=$schizoMode swapBack=$swapBack delay=100..${maxActionDelay.toInt()}ms verify=${verifyWindow}s phoenix=$pheonixPet bonzoFirst=$bonzoFirst sgdtInterval=${sgdtInterval}s screenTitles='$screenTitles' onlyInDungeons=$onlyInDungeons onlyInGoldor=$onlyInGoldor")
         SchizoLeapInput.registerHandler(::shouldWaitForSchizoKeypress)
 
-        // your own proc lines are only sent to you, so your own state here is exact (see odin's InvincibilityTimer).
-        // this is the real hookup: live hypixel proc lines feed the same onPop/onPhoenixPop the sgdt rig replays
         on<MessageEvent.Chat> {
             if (!enabled || !eeEnabled) return@on
             val kind = MaskKind.match(message)
@@ -199,8 +178,7 @@ object EarlyEnter : Module(
         }
 
         on<TickEvent.Server> {
-            // cooldowns keep ticking while the module is off so the HUD never shows frozen numbers, but the
-            // rig must not: an off module stays completely silent, fake pops included
+
             val active = enabled && eeEnabled
             val fire = synchronized(lock) {
                 for (k in MaskKind.entries) maskCdTicks[k] = (maskCdTicks[k] ?: 0).let { if (it > 0) it - 1 else 0 }
@@ -256,14 +234,14 @@ object EarlyEnter : Module(
                 val prev = lastSection
                 lastSection = sec
                 synchronized(lock) {
-                    // a new section means the death-tick pocket moved on; a fresh sit gets fresh pops
+
                     if (poppedKinds.isNotEmpty()) {
                         earlyEnterLog("earlyenter", "section ${prev}->$sec; resetting pop chain (${poppedKinds.joinToString("+")})")
                         poppedKinds.clear()
                     }
                     closedChain = false
                     actions.removeAll { it !is Restore }
-                    // a fresh section is a fresh sit: the phoenix gate and the first-swap bootstrap re-arm
+
                     phoenixPopped = false
                     bootstrapped = false
                 }
@@ -275,8 +253,6 @@ object EarlyEnter : Module(
         resetRunState("module disabled")
         super.onDisable()
     }
-
-    // ============================= pop handling =============================
 
     private fun onPop(kind: MaskKind, at: Long, synthetic: Boolean) {
         val seconds = if (kind == MaskKind.BONZO) headCooldownSeconds() else null
@@ -298,12 +274,10 @@ object EarlyEnter : Module(
                 return@synchronized
             }
             if (poppedKinds.size >= 2 && !closedChain) {
-                // both masks are on cooldown: the sit's saves are spent - original helmet back on, then close.
-                // no mask re-wear here: the other mask was JUST worn and popped, re-equipping it does nothing
+
                 closedChain = true
-                actions.removeAll { it is Swap } // a still-queued pop#1 swap would only put a fresh-cooldown mask on
-                // instant end-of-sit: the swap already displaced the helmet off the head, so just click the
-                // original helmet back and close the screen - no restore staging / verify window wanted
+                actions.removeAll { it is Swap }
+
                 arm(Close(at), 0)
                 reaction = "both"
             } else if (actions.none { it is Swap }) {
@@ -320,7 +294,6 @@ object EarlyEnter : Module(
         }
     }
 
-    /** the phoenix pet's save line - with "Pheonix Pet" on this is what unlocks swapping for the rest of the sit */
     private fun onPhoenixPop(synthetic: Boolean) {
         synchronized(lock) {
             phoenixPopped = true
@@ -345,20 +318,15 @@ object EarlyEnter : Module(
         actions += action
     }
 
-    /** arms an ordered chain stage: each stage waits out the previous click + verify window */
     private fun arm(action: EeAction, stage: Int) {
         action.fireAt = if (schizoMode) 0L else System.currentTimeMillis() + randomActionDelay() + verifyMs() * 2 * stage
         if (sgdtRunning) rigArmed = true
         actions += action
     }
 
-    /** randomized human-ish wait before an automated click, upper-bounded by the Max action delay setting */
     private fun randomActionDelay(): Long = (100..maxActionDelay.roundToInt().coerceAtLeast(100)).random().toLong()
 
-    /** how long an equip click gets to prove itself (the item leaving the inventory) before a retry */
     private fun verifyMs(): Long = (verifyWindow * 1000).roundToInt().coerceAtLeast(250).toLong()
-
-    // ============================== screens ==============================
 
     private fun openScreen(container: AbstractContainerScreen<*>) {
         val now = System.currentTimeMillis()
@@ -366,8 +334,8 @@ object EarlyEnter : Module(
         val captureHelmet: Boolean
         var staleDropped = 0
         synchronized(lock) {
-            if (inScreen) closeScreenInternal() // switching straight from one tracked screen to another
-            // a queued swap older than the purge window is from a sit that is long over; dump it
+            if (inScreen) closeScreenInternal()
+
             val before = actions.size
             actions.removeAll { it.queuedAt < now - QUEUE_PURGE_MS && it !is Restore && it !is Swap }
             staleDropped = before - actions.size
@@ -387,12 +355,9 @@ object EarlyEnter : Module(
         val (orig, pending, chainDue) = synchronized(lock) { Triple(originalHelmet, swapBackPending, closedChain) }
         if (orig != null && pending && swapBack) {
             synchronized(lock) {
-                // the restore action itself works out whether the helmet is still in the inventory (click it)
-                // or already on the head (the client's head data lags the server, so it is not consulted here)
+
                 if (actions.none { it is Restore }) {
-                    // only when the end sequence is due (both masks popped): the server re-sends the screen
-                    // after EVERY equip click, and a restore here would cut the mask chain short - the golden
-                    // would go back on between the two masks and the chain would end with a mask on your head
+
                     if (!chainDue) {
                         if (verboseLog) earlyEnterLog("earlyenter", "open '$title': swap-back pending but the end sequence hasn't started (not both masks popped), leaving it to the chain")
                     } else {
@@ -424,12 +389,12 @@ object EarlyEnter : Module(
         val action = synchronized(lock) { actions.firstOrNull { it.fireAt > 0 && it.fireAt <= now } ?: return }
         when (action) {
             is Close -> {
-                // let a still-running restore finish first - it may be waiting out hypixel's late inventory sync
+
                 if (synchronized(lock) { actions.any { it is Restore } }) {
                     synchronized(lock) { action.fireAt = now + 500L }
                     return
                 }
-                // if the staged restore never fired its click, still put the helmet back before the screen goes down
+
                 val orig = synchronized(lock) { if (swapBackPending) originalHelmet else null }
                 if (swapBack && orig != null) {
                     val hit = orig.let { findRestoreSlot(container, it) }
@@ -438,8 +403,7 @@ object EarlyEnter : Module(
                         earlyEnterLog("earlyenter", "restore-before-close: clicked ${hit.renderForLog}")
                         modMessage("[EarlyEnter] helmet back on; closing the screen")
                         synchronized(lock) { swapBackPending = false; actions.remove(action) }
-                        // no verify staging on this path - click the helmet back and let the shared close tail
-                        // right below put the screen down straight away
+
                     } else if (verboseLog) {
                         earlyEnterLog("earlyenter", "restore-before-close: original (${orig.render()}) not in the inventory region (already on the head?), closing")
                     }
@@ -448,17 +412,14 @@ object EarlyEnter : Module(
                 earlyEnterLog("earlyenter", "CLOSE screen ${if (orig != null) "(original helmet not restored!)" else ""}")
                 synchronized(lock) { actions.remove(action) }
                 mc.gui.setScreen(null)
-                // the sit is over - re-arm the next death's pop chain instead of staying stuck in the
-                // popped/closed state (a repeat pop in the next sit would be swallowed as a duplicate)
+
                 synchronized(lock) {
                     poppedKinds.clear()
                     closedChain = false
                 }
             }
             is Restore -> {
-                // one click replaces whatever is on your head; the helmet leaving the inventory is the fast
-                // confirm - the client's worn-helmet data lags or freezes behind the server on hypixel, so
-                // the inventory region is the only truth used here
+
                 if (action.clickedUuid.isNotEmpty() && !invRegionHoldsUuid(container, action.clickedUuid)) {
                     earlyEnterLog("earlyenter", "restore: original helmet equipped (it left the inventory after try=${action.tries})")
                     modMessage("[EarlyEnter] \u00a7ahelmet back on\u00a7f \u00a78(try ${action.tries})")
@@ -475,9 +436,7 @@ object EarlyEnter : Module(
                 }
                 val hit = findRestoreSlot(container, action.wanted)
                 if (hit == null) {
-                    // a module swap DID happen (that's why this is queued), so the helmet was displaced and
-                    // exists somewhere - hypixel just syncs the displaced item into the inventory late
-                    // (~3.4s in tests), so wait for it instead of concluding anything off the stale head
+
                     if (action.notFoundSince == 0L) action.notFoundSince = now
                     if (now - action.notFoundSince < NOT_FOUND_GIVEUP_MS) {
                         if (!action.loggedMissing) {
@@ -502,16 +461,13 @@ object EarlyEnter : Module(
                 synchronized(lock) { action.fireAt = now + verifyMs() }
             }
             is Swap -> {
-                // masks are time-gated (spirit 30s / bonzo's cd scales off the worn head), not one-shot: if
-                // the mask we are swapping onto is still cooling down there is nothing useful to click - hold
-                // the swap and let the spent-save tail (original helmet back + close) run the sit down
+
                 val targetCd = synchronized(lock) { maskCdTicks[action.kind] ?: 0 }
                 if (targetCd > 0) {
                     earlyEnterLog("earlyenter", "swap ${action.kind.name}: target mask still on cooldown (${targetCd / 20f}s) - holding swap")
                     return
                 }
-                // one click replaces whatever is on your head - success is the mask leaving your inventory
-                // (the client's worn-helmet data lags behind the server on hypixel, so the inventory is the truth)
+
                 if (action.clickedUuid.isNotEmpty() && !invRegionHoldsUuid(container, action.clickedUuid)) {
                     reportLanding(container, action)
                     earlyEnterLog("earlyenter", "swap ${action.kind.name}: equipped (mask left the inventory after try=${action.tries})")
@@ -525,7 +481,7 @@ object EarlyEnter : Module(
                 if (action.tries >= 2) {
                     synchronized(lock) {
                         actions.remove(action)
-                        // a rejected bootstrap shouldn't strand the sit: let the next screen open try again
+
                         if (action.bootstrap) bootstrapped = false
                     }
                     earlyEnterLog("earlyenter", "swap ${action.kind.name}: mask still in your inventory after ${action.tries} click(s), giving up (server rejected the click)")
@@ -535,20 +491,18 @@ object EarlyEnter : Module(
                 val hit = findMaskSlot(container, action.kind)
                 if (hit == null) {
                     if (action.tries == 0) {
-                        // the mask is not in the inventory region: it is already on the head, or not carried
+
                         if (verboseLog) earlyEnterLog("earlyenter", "swap ${action.kind.name}: mask not in the inventory region (already equipped or not carried), nothing to click")
                         modMessage("[EarlyEnter] \u00a7e${action.kind.name.lowercase()} mask not in your inventory\u00a7f \u00a77- nothing to click")
                         synchronized(lock) { actions.remove(action) }
                     } else {
-                        // clicked before but the uuid is still seen: mid-sync, wait a beat
+
                         dumpScreenItems(container)
                         synchronized(lock) { action.fireAt = now + RETRY_MS }
                     }
                     return
                 }
-                // predict where the item this click displaces off the head will land, so the swap-back knows
-                // exactly which slot to look at - inventories without a personal deleter fill with dungeon
-                // junk, so the landing slot differs per player and has to be worked out, not assumed
+
                 action.predictedLandSlot = predictedLandSlotFor(container, hit.index)
                 val displaced = synchronized(lock) {
                     if (swapBackPending) "your ${action.kind.other.name.lowercase()} mask"
@@ -566,11 +520,6 @@ object EarlyEnter : Module(
         }
     }
 
-    /**
-     * The first swap of the order has no mask pop before it (nothing wore a mask yet), so the screen itself
-     * triggers it: with "Pheonix Pet" on only once the pet has popped, without it the moment the screen is
-     * open - both after the action delay. Every later swap stays pop-driven.
-     */
     private fun maybeBootstrap() {
         val first: MaskKind
         synchronized(lock) {
@@ -585,20 +534,11 @@ object EarlyEnter : Module(
         modMessage("[EarlyEnter] starting the order: clicking the \u00a7a${first.name.lowercase()}\u00a7f mask")
     }
 
-    /**
-     * The slot you'd click manually: ONE click on the mask item replaces whatever is on your head (no
-     * unequip step needed). Searched ONLY in the player-inventory region of the menu - every skyblock
-     * chest menu is container slots followed by your 36 inventory slots, and the top grid only MIRRORS
-     * your worn gear: the server rejects clicks there by closing and re-sending the screen. Matched by
-     * skyblock item id first, then by cleaned display name, so reforged / fragged / starred variants
-     * ("Necrotic Spirit Mask", "Sunny Bonzo's Mask") are found too.
-     */
     private fun findMaskSlot(container: AbstractContainerScreen<*>, kind: MaskKind): SlotHit? =
         slotInInvRegion(container) { kind.matches(it) }
 
     private fun findRestoreSlot(container: AbstractContainerScreen<*>, wanted: HeadMatch): SlotHit? =
-        // the exact displaced instance first (skyblock uuid), so a spare copy with the same name in a
-        // cluttered inventory is never clicked by mistake; then id, then cleaned display name
+
         (if (wanted.uuid.isNotBlank()) slotInInvRegion(container) { wanted.sameInstance(it) } else null)
             ?: slotInInvRegion(container) { wanted.sameItem(it) }
 
@@ -617,7 +557,6 @@ object EarlyEnter : Module(
         }
     }
 
-    /** after an equip click the server moves the item onto your head; the inventory region it left is the fast confirm */
     private fun invRegionHoldsUuid(container: AbstractContainerScreen<*>, uuid: String): Boolean {
         if (uuid.isBlank()) return false
         val firstInvSlot = container.menu.slots.size - 36
@@ -626,12 +565,6 @@ object EarlyEnter : Module(
         }
     }
 
-    /**
-     * Where the server puts the item your equip click displaces off your head: vanilla inventory-add
-     * order - first free hotbar slot (the last 9 menu slots), then first free main-inventory slot. Your
-     * 19:11 test displaced the golden head into slot 54 exactly like that (your hotbar was full). If the
-     * whole inventory region is full, the clicked mask's own slot is what frees up first, so it lands there.
-     */
     private fun predictedLandSlotFor(container: AbstractContainerScreen<*>, clickedSlot: Int): Int {
         val n = container.menu.slots.size
         val firstInvSlot = n - 36
@@ -640,7 +573,6 @@ object EarlyEnter : Module(
         return clickedSlot
     }
 
-    /** confirm the landing prediction: what sits in the predicted slot once the equip synced */
     private fun reportLanding(container: AbstractContainerScreen<*>, action: Swap) {
         val at = action.predictedLandSlot
         if (at < 0) return
@@ -657,27 +589,23 @@ object EarlyEnter : Module(
         )
     }
 
-    // ============================== gating ==============================
-
     private fun isTrackedScreen(screen: AbstractContainerScreen<*>): Boolean {
         val title = screen.title.string
-        // never touch the savepoint/leap playgrounds; 'Game Menu' renders as a container screen too and must
-        // not poison the original-helmet capture or run screen logic (see savepoint.log 15:35:53)
+
         if (title.equalsOneOf("Spirit Leap", "Teleport to Player", "Obsidian", "Game Menu")) return false
         val filter = screenTitles.trim()
         if (filter.equals("*")) return true
-        // blank / untouched config falls back to the /stats screen itself instead of any container screen
+
         val effective = filter.ifEmpty { "Stats & Equipment" }
         return effective.split(',').any { it.isNotBlank() && title.contains(it.trim(), ignoreCase = true) }
     }
 
     private fun reactionAllowed(): Boolean {
-        // the sgdt rig must work anywhere e.g. while dry-testing in the village with the screen open; the
-        // bypass stays on until its action chain (helmet restore + close tail) has fully drained
+
         if (synchronized(lock) { sgdtRunning || (rigArmed && actions.isNotEmpty()) }) return true
         val inBoss = runCatching { DungeonUtils.inBoss }.getOrDefault(false)
         val onGoldorFloor = runCatching { DungeonUtils.isFloor(7) }.getOrDefault(false)
-        // dynamic: any goldor sit counts (sections 1-4 + core recore sits)
+
         val inGoldorSection = GoldorTracker.section in 1..5
         if (onlyInGoldor) {
             if (!inBoss) {
@@ -704,20 +632,16 @@ object EarlyEnter : Module(
         return synchronized(lock) { actions.any { it.fireAt == 0L } }
     }
 
-    // ============================== helpers ==============================
-
     private fun headStack(): ItemStack? = mc.player?.getItemBySlot(EquipmentSlot.HEAD)
 
     private fun HeadMatch.render(): String = if (id.isNotBlank()) "$id ('$name')" else "'$name'"
 
-    // bonzo's cooldown scales, so odin reads the exact seconds off the head's lore when it procs
     private fun headCooldownSeconds(): Int? = runCatching {
         val cooldownRegex = Regex("^Cooldown: (\\d+)s$")
         headStack()?.loreString
             ?.reversed()?.firstNotNullOfOrNull { cooldownRegex.matchEntire(it)?.groupValues?.get(1)?.toIntOrNull() }
     }.getOrNull()
 
-    /** written once per screen open, and again whenever a slot search fails, so mismatches are debuggable */
     private fun dumpScreenItems(container: AbstractContainerScreen<*>) {
         if (!verboseLog || screenDumped) return
         screenDumped = true
@@ -759,14 +683,6 @@ object EarlyEnter : Module(
         return sb.toString()
     }
 
-    // ============================== sgdt test rig ==============================
-
-    /**
-     * /leaputils sgdt is a dry-test rig, not the module's input: a timer at the goldor tick cadence odin's
-     * TickTimers shows (60t = 3s by default) replays the real proc sequence - the phoenix pet first (opens
-     * the "Pheonix Pet" gate), then the masks in the configured order - exactly as the live chat lines would.
-     * Real pops were always wired: the chat handler feeds the same onPop/onPhoenixPop with synthetic=false.
-     */
     fun toggleTestTimer() {
         val nowRunning: Boolean
         synchronized(lock) {
@@ -775,7 +691,7 @@ object EarlyEnter : Module(
             sgdtTick = 0
             sgdtQueue.clear()
             if (nowRunning) {
-                // a fresh rig is a fresh sit: pops, cooldowns and stale queues go so reruns always fire
+
                 poppedKinds.clear()
                 closedChain = false
                 maskCdTicks.clear()
@@ -787,8 +703,7 @@ object EarlyEnter : Module(
                 bootstrapped = false
                 phoenixPopped = false
                 phoenixCdTicks = 0
-                // the rig replays the real sequence: the phoenix pop opens the gate, then the masks pop in
-                // the configured order (the first one is what the bootstrap puts on your head)
+
                 sgdtPhoenixPending = true
                 sgdtQueue += if (bonzoFirst) listOf(MaskKind.BONZO, MaskKind.SPIRIT) else listOf(MaskKind.SPIRIT, MaskKind.BONZO)
             }
@@ -829,9 +744,6 @@ object EarlyEnter : Module(
         onPop(kind, System.currentTimeMillis(), synthetic = true)
     }
 
-    // ============================== resets ==============================
-
-    /** /leaputils eereset - clear the cooldown timers, pops and queues without toggling the module */
     fun resetForCommand() {
         resetRunState("manual reset (/leaputils eereset)")
         modMessage("[EarlyEnter] \u00a7btimers reset\u00a7f - cooldowns, pops and queues cleared")
@@ -864,16 +776,11 @@ object EarlyEnter : Module(
     }
 }
 
-// reforge prefixes, colour codes and recomb stars live in the display name; match against fragments instead
 private val colorCodeRegex = Regex("\u00a7.")
 
-/**
- * "Necrotic Spirit Mask" (colour codes + reforge in front, stars behind) -> "necrotic spirit mask",
- * so a `contains("spirit mask")` check still hits on any reforged / fragged / starred variant.
- */
 private fun cleanItemName(item: ItemStack?): String =
     item?.hoverName?.string
-        ?.replace('\u2019', '\'')  // some fonts swap the apostrophe
+        ?.replace('\u2019', '\'')
         ?.replace(colorCodeRegex, "")
         ?.lowercase()
         ?.trim()

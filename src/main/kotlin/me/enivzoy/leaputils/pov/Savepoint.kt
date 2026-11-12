@@ -26,8 +26,6 @@ import net.minecraft.client.Minecraft
 import net.minecraft.client.gui.screens.Screen
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen
 
-// hated memorising who to leap and when to leap? introducing savepoint, a mod so good it might as well be cheats, granted you dont toggle off schizo mode. if you toggle schizo mode this module will auto /wdr you and run a autoclicker at 7000cps
-// this module also has a non leap(dry mode) which only shows u who ur supposed to leap to next instead of cheating
 object Savepoint : Module(
     name = "Savepoint",
     category = Category.custom("Leap Utils", 860, 10),
@@ -53,7 +51,7 @@ object Savepoint : Module(
     private var lastTrackerSection = 0
     private var stablePhase = M7Phases.Unknown
     private var pendingPhase: M7Phases? = null
-    private var pendingPhaseTicks = 0 // this flah is also used for floor7 but not seperated since both floors have the same maps.
+    private var pendingPhaseTicks = 0
     private var lastStatus: String? = null
     private var lastTraceKey = ""
     private var myClassCached: DungeonClass? = null
@@ -129,16 +127,13 @@ object Savepoint : Module(
     private val cellList = mutableListOf<CellEntry>()
     private val cellSettings = LinkedHashMap<String, SelectorSetting<SpTgt>>()
     private val cellProp: kotlin.reflect.KProperty<*> = ::dryRun
-    //*
-    // Poorly made logging functionaility
-    // this isn't used in the code anywhere its purely for logging purposes.
-    // */
+
     private fun stageTitle(stage: SpStage): String = when (stage) {
         SpStage.P1 -> "Maxor, crystal checkpoints"
         SpStage.P2_GY -> "Storm, green-yellow route"
         SpStage.P2_OLDPY -> "Storm, old purple to yellow route"
         SpStage.P2_NEWPY -> "Storm, new purple to yellow route"
-        SpStage.PREDEV -> "Storm / Goldor section 0, before the boss starts" // will account for pre-ministers soon
+        SpStage.PREDEV -> "Storm / Goldor section 0, before the boss starts"
         SpStage.P3_S1_ENTRY -> "Goldor section 1 entry / Simon Says positioning"
         SpStage.P3_S1 -> "Goldor section 1"
         SpStage.P3_S2 -> "Goldor section 2"
@@ -337,7 +332,7 @@ object Savepoint : Module(
             myClassCached = runCatching { DungeonUtils.currentDungeonPlayer }.getOrNull()?.let {
                 if (it.clazz != DungeonClass.EMPTY) it.clazz else null
             }
-            val ph = runCatching { DungeonUtils.getF7Phase() }.getOrNull() //pornhub
+            val ph = runCatching { DungeonUtils.getF7Phase() }.getOrNull()
             if (ph != null) {
                 if (ph == stablePhase) {
                     pendingPhase = null
@@ -434,8 +429,7 @@ object Savepoint : Module(
     private fun applyPreset(preset: PresetFile) {
         var applied = 0
         var skipped = 0
-        // only clear the stages this preset actually covers - cells in stages it doesn't
-        // mention (e.g. your P1 crystal leaps, P5) are yours and survive the load
+
         val covered = (preset.cells ?: emptyMap()).keys.mapNotNull { key ->
             SpStage.entries.sortedByDescending { it.id.length }.firstOrNull { key == it.id || key.startsWith("${it.id}.") }
         }.toSet()
@@ -477,8 +471,7 @@ object Savepoint : Module(
             }
         }
         if (preset.id == "adg") {
-            // ADG now has one explicit P5 leap (Mage -> Healer) and no generic
-            // Necron nearest leap; class mode is required for those matrix rows.
+
             necronTargetMode = TargetMode.CLASS
         }
         val conds = (preset.conds ?: emptyMap()).mapValues { (_, v) -> SavepointPresets.toCond(v) }
@@ -491,8 +484,6 @@ object Savepoint : Module(
         modMessage("[Savepoint] loaded ${preset.label ?: preset.id}: $applied cells set, $skipped entries skipped, ${conds.size} conds")
     }
 
-    /** /leaputils reload: after the updater refreshed the cached presets, re-read conds + step labels from disk
-     *  so the planner picks up repo changes without a restart. Never touches your Custom cells - that's Load ADG's job. */
     fun reloadPresetMeta() {
         presetConds = SavepointPresets.loadConds()
         val adg = SavepointPresets.load("adg")
@@ -514,16 +505,13 @@ object Savepoint : Module(
 
     private fun migrateIfNeeded() {
         if (legacyMigrated) return
-        // Retire the old flat settings: they assigned one generic target to every
-        // class and prevented the current ADG preset from seeding an empty matrix.
+
         legacyMigrated = true
         SpLog.info("migrate", "retired legacy generic leap rows; current route is seeded from ADG")
     }
 
-    /** first run ever: the Custom matrix starts as a fill-in of the ADG config so the planner opens on something sane */
     private fun ensureCustomSeed() {
-        // Older ADG seeds put Maxor's crystal rows at the top of P2.GY. Detect that
-        // exact legacy layout and move it into P1 so existing installs open correctly.
+
         val misplacedCrystals = (1..SpStage.P1.steps).all { step ->
             SavepointEngine.LEAP_CLASSES.all { cellValue(SpStage.P1, step, it) == SpTgt.NONE }
         } && (1..2).any { step -> stepLabel(SpStage.P2_GY, step)?.contains("crystal", ignoreCase = true) == true }
@@ -547,8 +535,6 @@ object Savepoint : Module(
         modMessage("[Savepoint] your Custom plan was seeded from ADG - edit it in the planner (/leaputils plan)")
     }
 
-    // ============================== planner facade (used by SavepointPlanScreen) ==============================
-
     internal data class PlanStageInfo(
         val stage: SpStage,
         val title: String,
@@ -557,7 +543,6 @@ object Savepoint : Module(
         val steps: IntRange = 1..stage.steps,
     )
 
-    /** Every planner block follows the live encounter order; Storm cues are split at phase boundaries. */
     internal fun planStages(): List<PlanStageInfo> = buildList {
         add(PlanStageInfo(SpStage.P1, stageTitle(SpStage.P1), maxor, null))
 
@@ -592,7 +577,10 @@ object Savepoint : Module(
 
     internal fun setCellValue(stage: SpStage, step: Int, clazz: DungeonClass, tgt: SpTgt) = setCell(stage, step, clazz, tgt)
 
-    internal fun condLabel(stage: SpStage, step: Int): String? = presetConds["${stage.id}/$step"]?.describe()
+    internal fun condLabel(stage: SpStage, step: Int): String? = presetConds["${stage.id}/${step}"]?.describe()
+
+    internal fun condLabel(stage: SpStage, step: Int, clazz: DungeonClass): String? =
+        presetConds["${stage.id}/${step}/${clazz.name}"]?.describe() ?: presetConds["${stage.id}/${step}"]?.describe()
 
     internal fun stepLabel(stage: SpStage, step: Int): String? = stepMeta["${stage.id}.$step"]?.label
 
@@ -606,7 +594,17 @@ object Savepoint : Module(
             cells.getOrPut("${e.stage.id}/${e.step}") { LinkedHashMap() }[e.clazz.name] = tgt.name
         }
         val conds = presetConds.mapValues { (_, c) ->
-            PresetCondJson(c.subject.name, c.mode.name, c.landmark, c.radius, c.holdMs, c.anyAfterMs)
+            PresetCondJson(
+                subject = c.subject.name,
+                mode = c.mode.name,
+                landmark = c.landmark,
+                radius = c.radius,
+                holdMs = c.holdMs,
+                anyAfterMs = c.anyAfterMs,
+                onFail = c.onFail.name,
+                objective = c.objective?.name,
+                objectiveMin = c.objectiveMin,
+            )
         }
         return SavepointPresets.toJson(
             PresetFile(id = "custom", label = "Savepoint custom plan", source = "leaputils planner", cells = cells, conds = conds)
@@ -626,7 +624,6 @@ object Savepoint : Module(
         return null
     }
 
-    /** "adg ✓5m ago  mm7g ✗bundled" style status for the planner header */
     internal fun presetStatus(): String = SavepointRemote.PRESET_IDS.joinToString("   ") { id ->
         val (exists, at) = SavepointPresets.remoteInfo(id) ?: (false to 0L)
         val age = when {
@@ -678,13 +675,13 @@ object Savepoint : Module(
                 else -> e.setting.getValue(this, cellProp)
             }
             if (tgt == SpTgt.NONE) continue
-            val cond = presetConds["${e.stage.id}/${e.step}"]
+            val cond = presetConds["${e.stage.id}/${e.step}/${e.clazz.name}"] ?: presetConds["${e.stage.id}/${e.step}"]
             val rule = when (tgt) {
                 SpTgt.NEAREST -> when (e.stage) {
                     SpStage.P4 -> SpRule(tgt, necronLandmark.trim(), necronRadius.toDouble(), cond)
                     SpStage.P5 -> SpRule(tgt, p5Landmark.trim(), p5Radius.toDouble(), cond)
                     SpStage.P2_GY, SpStage.P2_OLDPY, SpStage.P2_NEWPY -> SpRule(tgt, stormLandmark.trim(), stormRadius.toDouble(), cond)
-                    // other stages have no landmark home yet - the engine reports the missing config instead of guessing
+
                     else -> SpRule(tgt, cond = cond)
                 }
                 else -> SpRule(tgt, cond = cond)
@@ -702,7 +699,7 @@ object Savepoint : Module(
         StormVariant.NEW_PY -> SpStage.P2_NEWPY
     }
 
-    private const val PREDEV_DROP_Y = 190.0 // berserk on maxor platform ~221, at py drop-off ~166
+    private const val PREDEV_DROP_Y = 190.0
 
     private fun berserkDropped(): Boolean = runCatching {
         DungeonUtils.leapTeammates.any {
@@ -712,14 +709,12 @@ object Savepoint : Module(
 
     private fun activeSteps(): List<SpStep> {
         val raw = phase()
-        // pre-boss, your own drop-off descent reads P3/P4/P5 from the y-band; keep the storm window armed
+
         val ph =
             if (GoldorTracker.section == 0 && (raw == M7Phases.P3 || raw == M7Phases.P4 || raw == M7Phases.P5)) M7Phases.P2 else raw
         return when (ph) {
             M7Phases.P1 -> buildList {
-                // crystal waves while the maxor fight is live; once someone is down at the py drop-off the
-                // crystal work is over (grabbing crystals only happens up on the maxor platform) and the
-                // storm route's reposition step takes over the window
+
                 if (maxor && !berserkDropped()) {
                     for (s in 1..SpStage.P1.steps) add(SpStep(SpStage.P1, s))
                 }
@@ -727,7 +722,7 @@ object Savepoint : Module(
             }
             M7Phases.P2 -> buildList {
                 if (storm) {
-                    // The initial drop-off cue precedes healer predev; the remaining cues follow it.
+
                     add(SpStep(stormStage(), 1))
                 }
                 if (goldor && GoldorTracker.section == 0) add(SpStep(SpStage.PREDEV, 1))
@@ -773,8 +768,26 @@ object Savepoint : Module(
                 val e = OdinAccess.entityOf(t)
                 SpTmate(t.name, t.clazz, t.isDead, OdinAccess.isLeapAvailable(t, screen), e?.x, e?.y, e?.z)
             }
-        return SpCtx(steps, consumed, tmates, myClassCached, p?.x, p?.y, p?.z, timings, Landmarks.all)
+        return SpCtx(
+            steps, consumed, tmates, myClassCached, p?.x, p?.y, p?.z, timings, Landmarks.all,
+            phaseNum(),
+            GoldorTracker.terminalsDone,
+            GoldorTracker.leversDone,
+            GoldorTracker.deviceDone,
+            GoldorTracker.gateOpen,
+        )
     }
+
+    private fun phaseNum(): Int = runCatching {
+        when (phase()) {
+            M7Phases.P1 -> 1
+            M7Phases.P2 -> 2
+            M7Phases.P3 -> 3
+            M7Phases.P4 -> 4
+            M7Phases.P5 -> 5
+            M7Phases.Unknown -> 0
+        }
+    }.getOrDefault(0)
 
     private fun updateTimings(plan: SpPlan, now: Long) {
         if (plan is SpPlan.Hold) {
@@ -824,7 +837,7 @@ object Savepoint : Module(
         )
         modMessage("[Savepoint] ${plan.label}")
     }
-    // pls send me ur logs
+
     private fun logPlan(plan: SpPlan) {
         if (!verboseLog) return
         val key = when (plan) {
@@ -896,7 +909,7 @@ object Savepoint : Module(
     private fun isLeapScreen(screen: AbstractContainerScreen<*>): Boolean {
         val title = screen.title.string
         return title == "Spirit Leap" || title == "Teleport to Player" || title == "Obsidian"
-        // to which ever motherfucker comes here and comments about this "Obsidian" was a chest i had renamed to see if it clicked properly
+
     }
 
     private fun nameKey(name: String): String = name.trim().lowercase()

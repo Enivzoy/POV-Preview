@@ -11,12 +11,17 @@ data class PresetCondJson(
     val subject: String? = null,
     val mode: String? = null,
     val landmark: String? = null,
+    val x: Double? = null,
+    val y: Double? = null,
+    val z: Double? = null,
     val radius: Double? = null,
     val holdMs: Long? = null,
     val anyAfterMs: Long? = null,
+    val onFail: String? = null,
+    val objective: String? = null,
+    val objectiveMin: Int? = null,
 )
 
-/** what a single step means - shown as the row label and the hover tooltip in the planner */
 data class PresetStepMeta(
     val label: String? = null,
     val desc: String? = null,
@@ -40,12 +45,6 @@ object SavepointPresets {
     private val condsFile: Path = dir.resolve("conds.json")
     private val condType = object : TypeToken<LinkedHashMap<String, PresetCondJson>>() {}.type
 
-    /**
-     * The current ADG POV is bundled and authoritative; this prevents an older cached ADG
-     * plan from restoring obsolete rows. Other presets can still use the remote cache first.
-     */
-    // ADG is the project-maintained POV preset. Prefer the bundled copy so a stale
-    // downloaded ADG JSON cannot restore the retired crystal rows or old role map.
     fun load(id: String): PresetFile? = if (id == "adg") {
         loadBundled(id) ?: loadCached(id)
     } else {
@@ -67,10 +66,6 @@ object SavepointPresets {
 
     fun toJson(preset: PresetFile): String = gson.toJson(preset)
 
-    /**
-     * Writes a fetched remote preset into the cache dir.
-     * Returns (existed, changed) so the updater can tell "first download" from "update" from "unchanged".
-     */
     fun saveRemote(id: String, content: String): Pair<Boolean, Boolean> = runCatching {
         Files.createDirectories(presetsDir)
         val p = presetsDir.resolve("$id.json")
@@ -80,7 +75,6 @@ object SavepointPresets {
         existed to changed
     }.getOrDefault(false to false)
 
-    /** (exists on disk, last modified epoch ms) for the planner's preset status line */
     fun remoteInfo(id: String): Pair<Boolean, Long>? = runCatching {
         val p = presetsDir.resolve("$id.json")
         if (!Files.exists(p)) null
@@ -91,9 +85,15 @@ object SavepointPresets {
         subject = json.subject?.let { runCatching { SpSubject.valueOf(it) }.getOrNull() } ?: SpSubject.TARGET,
         mode = json.mode?.let { runCatching { SpMode.valueOf(it) }.getOrNull() } ?: SpMode.NEAR,
         landmark = json.landmark ?: "",
+        x = json.x,
+        y = json.y,
+        z = json.z,
         radius = json.radius ?: 0.0,
         holdMs = json.holdMs ?: 400,
         anyAfterMs = json.anyAfterMs ?: 0,
+        onFail = json.onFail?.let { runCatching { SpOnFail.valueOf(it) }.getOrNull() } ?: SpOnFail.WAIT,
+        objective = json.objective?.let { runCatching { SpObjective.valueOf(it) }.getOrNull() },
+        objectiveMin = json.objectiveMin ?: 0,
     )
 
     fun loadConds(): Map<String, SpCond> = runCatching {
@@ -110,9 +110,15 @@ object SavepointPresets {
                     "subject" to c.subject.name,
                     "mode" to c.mode.name,
                     "landmark" to c.landmark,
+                    "x" to c.x,
+                    "y" to c.y,
+                    "z" to c.z,
                     "radius" to c.radius,
                     "holdMs" to c.holdMs,
                     "anyAfterMs" to c.anyAfterMs,
+                    "onFail" to c.onFail.name,
+                    "objective" to c.objective?.name,
+                    "objectiveMin" to c.objectiveMin,
                 )
             }
             Files.writeString(condsFile, gson.toJson(json))

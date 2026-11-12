@@ -105,7 +105,7 @@ object LeapUtilsCommands {
                     .then(
                         ClientCommands.literal("plan")
                             .executes {
-                                // 26.2: gui.setScreen only flips state - setScreenAndShow is what actually displays it
+
                                 val screen = runCatching { SavepointPlanScreen() }
                                     .onFailure { modMessage("[LeapUtils] couldn't open the planner: ${it.message}") }
                                     .getOrNull()

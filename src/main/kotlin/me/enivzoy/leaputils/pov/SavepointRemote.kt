@@ -13,26 +13,15 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
 
-/**
- * Keeps the guide presets (ADG, MM7G) fresh from the GitHub repo: once per launch, on the first title
- * screen (not on world join), the raw preset files are fetched and dropped into
- * config/leaputils/presets/<id>.json - SavepointPresets.load prefers that cache over the jar's bundled copy,
- * so repo updates reach the mod without a new build. Chat gets told on first download / update; unchanged
- * and failed checks only go to the log so the title screen never spams.
- */
 object SavepointRemote {
 
     val PRESET_IDS = listOf("adg", "mm7g")
 
-    /** the one repo presets come from - deliberately not a setting, the updater points where the mod points.
-     *  raw github first, then jsdelivr: same file, different CDN - raw is blocked/unstable on some networks
-     *  where browsers still get through (proxy/dns/cdn-rule differences between java and your browser). */
     private val SOURCES = listOf(
         "https://raw.githubusercontent.com/Enivzoy/POV-Preview/LeapUtils",
         "https://cdn.jsdelivr.net/gh/Enivzoy/POV-Preview@LeapUtils",
     )
 
-    /** github's cdn deprioritizes/blocks generic java clients - identify ourselves properly */
     private val USER_AGENT: String = runCatching {
         val version = FabricLoader.getInstance().getModContainer("leaputils").orElse(null)?.metadata?.version?.friendlyString ?: "?"
         "LeapUtils/$version (github.com/Enivzoy/POV-Preview)"
@@ -55,7 +44,6 @@ object SavepointRemote {
         }
     }
 
-    /** fetches every preset as raw from the repo; manual=true also reports "up to date"/failures in chat */
     fun checkForUpdates(manual: Boolean = false) {
         val client = HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.NORMAL)
@@ -89,7 +77,7 @@ object SavepointRemote {
                         if (manual) modMessage("[Savepoint] §c$id§f: $url returned nothing")
                         return
                     }
-                    // never cache something that isn't a valid preset - a broken push must not poison the loader
+
                     val parsed = SavepointPresets.fromJson(body)
                     if (parsed == null) {
                         SpLog.warn("presets", "$id: $url is not a valid preset JSON, keeping the current copy")
@@ -116,7 +104,7 @@ object SavepointRemote {
                     lastError = e
                     SpLog.warn("presets", "$id: $url failed (pass $pass/$PASSES): ${e.javaClass.simpleName}: ${e.message}")
                     if (!loggedDns) {
-                        // first failure: log the resolved IPs - a poisoned/failed dns lookup explains a lot
+
                         val host = runCatching { URI.create(url).host }.getOrDefault(url)
                         val ips = runCatching { InetAddress.getAllByName(host).joinToString(", ") { it.hostAddress } }
                             .getOrDefault("lookup failed")
@@ -131,7 +119,6 @@ object SavepointRemote {
         if (manual) modMessage("[Savepoint] §c$id§f update check failed: ${lastError?.message ?: lastError?.javaClass?.simpleName ?: "unknown error"} - github raw and jsdelivr both unreachable")
     }
 
-    /** github raw hiccups now and then - two passes over the source list before giving up */
     private const val PASSES = 2
     private const val RETRY_DELAY_MS = 1_500L
 }
