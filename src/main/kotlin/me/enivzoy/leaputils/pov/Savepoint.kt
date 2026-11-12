@@ -25,6 +25,8 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents
 import net.minecraft.client.Minecraft
 import net.minecraft.client.gui.screens.Screen
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen
+import net.minecraft.world.entity.Entity
+import net.minecraft.world.entity.player.Player
 
 object Savepoint : Module(
     name = "Savepoint",
@@ -110,6 +112,11 @@ object Savepoint : Module(
     var plannerDepth by BooleanSetting("Planner depth mode", false, desc = "Planner chips show full names (Berserk > Nearest) instead of abbreviations (B > n)").hide()
 
     val soloCrush by BooleanSetting("SoloCrush", true, desc = "Skip the Purple Spotter (mage) leap after predev and leap straight to the berserk waiting at the start of S1 instead")
+    val glowR by NumberSetting("Glow R", 0, 0..255, 1, desc = "Legit mode glow red")
+    val glowG by NumberSetting("Glow G", 255, 0..255, 1, desc = "Legit mode glow green")
+    val glowB by NumberSetting("Glow B", 0, 0..255, 1, desc = "Legit mode glow blue")
+    val glowA by NumberSetting("Glow A", 255, 0..255, 1, desc = "Legit mode glow alpha")
+    @Volatile var glowTarget: Player? = null
     val section1Spotter by SelectorSetting("Section 1 Spotter", DungeonClass.BERSERK, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER)).hide()
     val section2Spotter by SelectorSetting("Section 2 Spotter", DungeonClass.MAGE, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER)).hide()
     val section3Spotter by SelectorSetting("Section 3 Spotter", DungeonClass.HEALER, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER)).hide()
@@ -282,6 +289,37 @@ object Savepoint : Module(
             if (!runCatching { DungeonUtils.inBoss }.getOrDefault(false)) return@on
             if (!floorOk()) return@on
             if (leapedThisMenu || paused) return@on
+
+            if (schizoMode) {
+                val steps = activeSteps()
+                if (steps.isEmpty()) {
+                    glowTarget = null
+                    val key = "E:${phase()}:${GoldorTracker.section}"
+                    if (key != lastTraceKey) {
+                        lastTraceKey = key
+                        if (verboseLog) SpLog.info("plan", "no steps armed phase=${phase()} section=${GoldorTracker.section}")
+                    }
+                    lastStatus = if (phase() == M7Phases.P3 && GoldorTracker.section == 0) "Waiting: Goldor section unknown" else null
+                    return@on
+                }
+                val rules = buildRules()
+                val ctx = buildCtx(steps, screen)
+                val plan = SavepointEngine.decide(ctx, rules)
+                glowTarget = when (plan) {
+                    is SpPlan.Leap -> runCatching { DungeonUtils.leapTeammates }.getOrDefault(emptyList())
+                        .firstOrNull { nameKey(it.name) == nameKey(plan.target.name) }
+                        ?.let { OdinAccess.entityOf(it) }
+                    else -> null
+                }
+                lastStatus = when (plan) {
+                    is SpPlan.Hold -> "Holding: ${plan.label}"
+                    is SpPlan.Wait -> "Waiting: ${plan.reason}"
+                    else -> null
+                }
+                if (dryRun) trace(plan) else logPlan(plan)
+                return@on
+            }
+
             if (!schizoMode && now - menuOpenedAt < delay) return@on
             if (schizoMode && !SchizoLeapInput.consumeKeyPress(screen)) return@on
 
@@ -924,6 +962,7 @@ object Savepoint : Module(
         waitKey = null
         lastStatus = null
         lastTraceKey = ""
+        glowTarget = null
     }
 
     private fun resetFightState() {
