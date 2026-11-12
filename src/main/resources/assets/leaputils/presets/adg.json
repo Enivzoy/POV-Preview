@@ -19,7 +19,7 @@
     "P1.2": { "BERSERK": "HEALER", "ARCHER": "TANK" },
     "P1.3": {},
     "P2.GY.1": { "MAGE": "BERSERK", "TANK": "BERSERK", "ARCHER": "BERSERK", "BERSERK": "ARCHER" },
-    "P2.GY.2": { "MAGE": "ARCHER", "BERSERK": "ARCHER" },
+    "P2.GY.2": { "MAGE": "ARCHER", "BERSERK": "ARCHER", "HEALER": "ARCHER" },
     "P2.GY.3": { "MAGE": "HEALER", "HEALER": "BERSERK" },
     "P2.GY.4": { "TANK": "HEALER", "MAGE": "TANK", "ARCHER": "MAGE" },
     "P2.GY.5": {},
