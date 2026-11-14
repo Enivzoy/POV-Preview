@@ -1,6 +1,7 @@
 package me.enivzoy.leaputils.pov
 
 import com.mojang.brigadier.Command
+import com.mojang.brigadier.arguments.IntegerArgumentType
 import com.mojang.brigadier.arguments.StringArgumentType
 import com.odtheking.odin.utils.modMessage
 import com.google.gson.Gson
@@ -168,6 +169,16 @@ object LeapUtilsCommands {
                                 modMessage("[LeapUtils] opened dummy leap menu")
                                 Command.SINGLE_SUCCESS
                             }
+                            .then(
+                                ClientCommands.argument("glow", IntegerArgumentType.integer(0, 3))
+                                    .executes { ctx ->
+                                        val glowIndex = IntegerArgumentType.getInteger(ctx, "glow")
+                                        val mc = Minecraft.getInstance()
+                                        mc.schedule { DummyLeapScreen.open(glowIndex) }
+                                        modMessage("[LeapUtils] opened dummy leap menu (glow on quadrant ${glowIndex + 1})")
+                                        Command.SINGLE_SUCCESS
+                                    }
+                            )
                     )
                     .then(
                         ClientCommands.literal("trigger")

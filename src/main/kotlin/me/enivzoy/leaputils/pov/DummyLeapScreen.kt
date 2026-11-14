@@ -39,7 +39,7 @@ object DummyLeapScreen {
 
     private var savedTeammates: List<DungeonPlayer>? = null
 
-    fun open() {
+    fun open(forceGlowIndex: Int = -1) {
         val mc = Minecraft.getInstance()
         val player = mc.player
         if (player == null) {
@@ -49,6 +49,7 @@ object DummyLeapScreen {
 
         savedTeammates = DungeonListener.leapTeammates
         DungeonListener.leapTeammates = dummyTeammates
+        Savepoint.guiGlowForceIndex = forceGlowIndex
 
         val menu = ChestMenu.threeRows(DUMMY_CONTAINER_ID, player.inventory)
 
@@ -78,6 +79,11 @@ object DummyLeapScreen {
         DungeonListener.leapTeammates = saved
     }
 
+    private fun onDummyClosed() {
+        restoreTeammates()
+        Savepoint.guiGlowForceIndex = -1
+    }
+
     private class DummyLeapChestScreen(menu: ChestMenu, inventory: Inventory, title: Component) :
         ContainerScreen(menu, inventory, title) {
 
@@ -85,12 +91,12 @@ object DummyLeapScreen {
         override fun mouseClicked(event: MouseButtonEvent, doubleClick: Boolean): Boolean = true
 
         override fun onClose() {
-            restoreTeammates()
+            onDummyClosed()
             super.onClose()
         }
 
         override fun removed() {
-            restoreTeammates()
+            onDummyClosed()
             super.removed()
         }
     }

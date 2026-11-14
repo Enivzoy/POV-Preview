@@ -13,8 +13,11 @@ import com.odtheking.odin.events.core.EventPriority
 import com.odtheking.odin.events.core.on
 import com.odtheking.odin.features.Category
 import com.odtheking.odin.features.Module
+import com.odtheking.odin.features.impl.dungeon.LeapMenu
 import com.odtheking.odin.utils.Colors
 import com.odtheking.odin.utils.modMessage
+import com.odtheking.odin.utils.render.Corners
+import com.odtheking.odin.utils.render.roundedOutline
 import com.odtheking.odin.utils.render.text
 import com.odtheking.odin.utils.render.textDim
 import com.odtheking.odin.utils.skyblock.dungeon.DungeonClass
@@ -26,6 +29,8 @@ import net.minecraft.client.Minecraft
 import net.minecraft.client.gui.GuiGraphicsExtractor
 import net.minecraft.client.gui.screens.Screen
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen
+import kotlin.math.pow
+import kotlin.math.roundToInt
 
 object Savepoint : Module(
     name = "Savepoint",
@@ -115,7 +120,9 @@ object Savepoint : Module(
     val glowG by NumberSetting("Glow G", 255, 0..255, 1, desc = "Legit mode glow green")
     val glowB by NumberSetting("Glow B", 0, 0..255, 1, desc = "Legit mode glow blue")
     val glowA by NumberSetting("Glow A", 255, 0..255, 1, desc = "Legit mode glow alpha")
+    val glowSize by NumberSetting("Glow Size", 6f, 2.0..16.0, 0.5f, desc = "Glow halo spread around the target box (gui px)")
     @Volatile var guiGlowTargetIndex: Int = -1
+    @Volatile var guiGlowForceIndex: Int = -1
     @Volatile var overrideCondition: String? = null
     @Volatile var overrideConditionStep: Int = 1
     val section1Spotter by SelectorSetting("Section 1 Spotter", DungeonClass.BERSERK, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER)).hide()
@@ -1009,48 +1016,50 @@ object Savepoint : Module(
         lastStatus = null
     }
 
+    private const val GLOW_RINGS = 8
+    private const val LEAP_HOVER_GROW = 5f // Odin LeapMenu's private GROW constant
+
     fun drawGuiGlow(gfx: GuiGraphicsExtractor) {
-        val targetIndex = guiGlowTargetIndex
+        val targetIndex = if (guiGlowForceIndex >= 0) guiGlowForceIndex else guiGlowTargetIndex
         if (targetIndex < 0) return
         val mc = Minecraft.getInstance()
         val screen = mc.gui.screen() as? AbstractContainerScreen<*> ?: return
         if (!isLeapScreen(screen)) return
-        val guiWidth = mc.window.width
-        val guiHeight = mc.window.height
-        val splitX = guiWidth / 2
-        val splitY = guiHeight / 2
 
-        val column = targetIndex % 2
+        // Mirror Odin LeapMenu's quadrant geometry so the glow hugs the box it draws:
+        // boxes radiate outward from the screen centre, 24 gui px off each half axis.
+        val halfW = mc.window.guiScaledWidth / 2
+        val halfH = mc.window.guiScaledHeight / 2
+        val col = targetIndex % 2
         val row = targetIndex / 2
-        val x0 = if (column == 0) 0 else splitX
-        val x1 = if (column == 0) splitX else guiWidth
-        val y0 = if (row == 0) 0 else splitY
-        val y1 = if (row == 0) splitY else guiHeight
+        val nearX = (if (col == 0) halfW - 24 else halfW + 24).toFloat()
+        val nearY = (if (row == 0) halfH - 24 else halfH + 24).toFloat()
+        val localX = if (col == 0) -LeapMenu.BOX_WIDTH.toFloat() else 0f
+        val localY = if (row == 0) -LeapMenu.BOX_HEIGHT.toFloat() else 0f
+        val grow = OdinAccess.leapMenuHoverValue(targetIndex) * LEAP_HOVER_GROW
+        val leapScale = OdinAccess.leapMenuRenderScale()
+        val sx = leapScale * (LeapMenu.BOX_WIDTH + grow * 2f) / LeapMenu.BOX_WIDTH
+        val sy = leapScale * (LeapMenu.BOX_HEIGHT + grow * 2f) / LeapMenu.BOX_HEIGHT
+        val x0 = nearX + localX * sx
+        val y0 = nearY + localY * sy
+        val x1 = nearX + (localX + LeapMenu.BOX_WIDTH) * sx
+        val y1 = nearY + (localY + LeapMenu.BOX_HEIGHT) * sy
 
-        val r = glowR / 255f
-        val g = glowG / 255f
-        val b = glowB / 255f
-        val a = glowA / 255f
-
-        // Draw a glow around the quadrant box (the box Odin draws for this teammate)
-        // The box is inset from the quadrant edges; draw a glow rectangle covering it
-        val inset = 10
-        val gx0 = x0 + inset
-        val gy0 = y0 + inset
-        val gx1 = x1 - inset
-        val gy1 = y1 - inset
-
-        // Multi-layer glow: outer layers dimmer, inner layers brighter
-        for (i in 4 downTo 1) {
-            val alpha = (a * 0.25f * (5 - i)).coerceIn(0f, 1f)
-            val color = ((alpha * 255).toInt() shl 24) or ((r * 255).toInt() shl 16) or ((g * 255).toInt() shl 8) or (b * 255).toInt()
-            val expand = i * 3
-            gfx.fill(gx0 - expand, gy0 - expand, gx1 + expand, gy1 + expand, color)
+        // Soft halo just outside the box: concentric rings drawn with Odin's
+        // rounded-outline SDF renderer, so they never paint over Odin's own box.
+        val rgb = ((glowR.coerceIn(0, 255)) shl 16) or ((glowG.coerceIn(0, 255)) shl 8) or (glowB.coerceIn(0, 255))
+        val step = glowSize / GLOW_RINGS
+        val width = step + 1.5f
+        for (ring in GLOW_RINGS downTo 1) {
+            val expand = step * ring
+            val t = 1f - (ring - 1) / GLOW_RINGS.toFloat()
+            val alpha = (glowA.coerceIn(0, 255) * 0.9f * t * t).toInt().coerceIn(0, 255)
+            gfx.roundedOutline(
+                (x0 - expand).roundToInt(), (y0 - expand).roundToInt(),
+                (x1 + expand).roundToInt(), (y1 + expand).roundToInt(),
+                (alpha shl 24) or rgb, width, Corners(9f + expand)
+            )
         }
-
-        // Core bright outline
-        val coreColor = ((a * 255).toInt() shl 24) or ((r * 255).toInt() shl 16) or ((g * 255).toInt() shl 8) or (b * 255).toInt()
-        gfx.fill(gx0 - 2, gy0 - 2, gx1 + 2, gy1 + 2, coreColor)
     }
 
     /** Find the index of the target teammate in the leap menu list. */

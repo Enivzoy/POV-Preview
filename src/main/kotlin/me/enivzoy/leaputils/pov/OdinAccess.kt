@@ -94,6 +94,19 @@ object OdinAccess {
     val leapTeammates: List<DungeonPlayer>
         get() = getLeapTeammatesMethod.call<List<DungeonPlayer>>(dungeonUtilsInstance).orEmpty()
 
+    private val hoverProgressField = findField(leapMenuClass, "hoverProgress")
+
+    /** LeapMenu's "Render Scale" setting value (1f if unreadable). */
+    fun leapMenuRenderScale(): Float = runCatching {
+        (com.odtheking.odin.features.impl.dungeon.LeapMenu.settings["Render Scale"]?.value as? Number)?.toFloat()
+    }.getOrNull() ?: 1f
+
+    /** LeapMenu's hover-grow animation value (0..1) for a quadrant, 0f if unreadable. */
+    fun leapMenuHoverValue(index: Int): Float = runCatching {
+        (hoverProgressField?.get(leapMenuInstance) as? List<*>)
+            ?.getOrNull(index) as? com.odtheking.odin.utils.ui.compose.Animatable
+    }.getOrNull()?.value ?: 0f
+
     val bloodKeyPickedUp: Boolean
         get() = runCatching { bloodKeyField?.getBoolean(null) }.getOrNull() ?: false
 
