@@ -4,7 +4,6 @@
   "package": "me.enivzoy.leaputils.mixin",
   "compatibilityLevel": "JAVA_25",
   "client": [
-    "LeapGuiGlowMixin",
     "PosePovRenderMixin",
     "PosePovUnderGuiMixin",
     "TitleScreenMixin"

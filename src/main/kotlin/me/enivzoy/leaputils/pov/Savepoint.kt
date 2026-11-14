@@ -116,13 +116,14 @@ object Savepoint : Module(
     var plannerDepth by BooleanSetting("Planner depth mode", false, desc = "Planner chips show full names (Berserk > Nearest) instead of abbreviations (B > n)").hide()
 
     val soloCrush by BooleanSetting("SoloCrush", true, desc = "Skip the Purple Spotter (mage) leap after predev and leap straight to the berserk waiting at the start of S1 instead")
-    val glowR by NumberSetting("Glow R", 0, 0..255, 1, desc = "Legit mode glow red")
+    val glowR by NumberSetting("Glow R", 255, 0..255, 1, desc = "Legit mode glow red")
     val glowG by NumberSetting("Glow G", 255, 0..255, 1, desc = "Legit mode glow green")
-    val glowB by NumberSetting("Glow B", 0, 0..255, 1, desc = "Legit mode glow blue")
+    val glowB by NumberSetting("Glow B", 255, 0..255, 1, desc = "Legit mode glow blue")
     val glowA by NumberSetting("Glow A", 255, 0..255, 1, desc = "Legit mode glow alpha")
     val glowSize by NumberSetting("Glow Size", 6f, 2.0..16.0, 0.5f, desc = "Glow halo spread around the target box (gui px)")
     @Volatile var guiGlowTargetIndex: Int = -1
     @Volatile var guiGlowForceIndex: Int = -1
+    private var glowDrawLogged = false
     @Volatile var overrideCondition: String? = null
     @Volatile var overrideConditionStep: Int = 1
     val section1Spotter by SelectorSetting("Section 1 Spotter", DungeonClass.BERSERK, desc = "", listOf(DungeonClass.BERSERK, DungeonClass.ARCHER, DungeonClass.MAGE, DungeonClass.TANK, DungeonClass.HEALER)).hide()
@@ -276,6 +277,11 @@ object Savepoint : Module(
                 resetMenuState()
                 return@on
             }
+            // Odin cancels the vanilla screen render from its ScreenEvent.Render HEAD hook,
+            // so a mixin at the screen method's RETURN never runs. Draw through the same
+            // event LeapMenu draws its boxes in (proven visible); our higher priority means
+            // the halo is submitted first and the box paints over its inner overlap.
+            drawGuiGlow(guiGraphics)
             val now = System.currentTimeMillis()
             if (!inLeapMenu) {
                 inLeapMenu = true
@@ -1005,6 +1011,7 @@ object Savepoint : Module(
         lastStatus = null
         lastTraceKey = ""
         guiGlowTargetIndex = -1
+        glowDrawLogged = false
     }
 
     private fun resetFightState() {
@@ -1038,6 +1045,10 @@ object Savepoint : Module(
         val localY = if (row == 0) -LeapMenu.BOX_HEIGHT.toFloat() else 0f
         val grow = OdinAccess.leapMenuHoverValue(targetIndex) * LEAP_HOVER_GROW
         val leapScale = OdinAccess.leapMenuRenderScale()
+        if (!glowDrawLogged) {
+            glowDrawLogged = true
+            SpLog.info("glow", "draw idx=$targetIndex color=$glowR,$glowG,$glowB,$glowA spread=$glowSize scale=$leapScale title='${screen.title.string}'")
+        }
         val sx = leapScale * (LeapMenu.BOX_WIDTH + grow * 2f) / LeapMenu.BOX_WIDTH
         val sy = leapScale * (LeapMenu.BOX_HEIGHT + grow * 2f) / LeapMenu.BOX_HEIGHT
         val x0 = nearX + localX * sx
