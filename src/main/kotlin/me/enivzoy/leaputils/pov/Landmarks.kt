@@ -164,8 +164,7 @@ object LeapUtilsCommands {
                         ClientCommands.literal("dummy")
                             .executes {
                                 val mc = Minecraft.getInstance()
-                                val screen = DummyLeapScreen()
-                                mc.schedule { mc.setScreenAndShow(screen) }
+                                mc.schedule { DummyLeapScreen.open() }
                                 modMessage("[LeapUtils] opened dummy leap menu")
                                 Command.SINGLE_SUCCESS
                             }
