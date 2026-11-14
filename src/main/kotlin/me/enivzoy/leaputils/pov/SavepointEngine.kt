@@ -137,7 +137,7 @@ sealed interface SpPlan {
     data object Idle : SpPlan
     data class Leap(val step: SpStep, val target: SpTmate, val label: String) : SpPlan
     data class Hold(val step: SpStep, val target: SpTmate, val key: String, val needMs: Long, val heldMs: Long, val label: String) : SpPlan
-    data class Wait(val step: SpStep?, val reason: String) : SpPlan
+    data class Wait(val step: SpStep?, val reason: String, val target: SpTmate? = null) : SpPlan
     data class SkipStep(val step: SpStep, val reason: String) : SpPlan
 }
 
@@ -247,12 +247,12 @@ object SavepointEngine {
 
     private fun fail(cond: SpCond, sstep: SpStep, reason: String, ctx: SpCtx, target: SpTmate, label: String): SpPlan =
         when (cond.onFail) {
-            SpOnFail.WAIT -> SpPlan.Wait(sstep, "$reason (${cond.describe()})")
+            SpOnFail.WAIT -> SpPlan.Wait(sstep, "$reason (${cond.describe()})", target)
             SpOnFail.SKIP -> SpPlan.SkipStep(sstep, "$reason (${cond.describe()})")
             SpOnFail.ANY_AFTER -> {
                 val waited = ctx.timings["wait:${sstep.key}"] ?: 0L
                 if (waited >= cond.anyAfterMs) SpPlan.Leap(sstep, target, label)
-                else SpPlan.Wait(sstep, "$reason (any leap after ${cond.anyAfterMs}ms)")
+                else SpPlan.Wait(sstep, "$reason (any leap after ${cond.anyAfterMs}ms)", target)
             }
         }
 

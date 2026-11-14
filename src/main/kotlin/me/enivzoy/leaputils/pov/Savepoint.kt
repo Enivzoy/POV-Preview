@@ -27,7 +27,6 @@ import com.odtheking.odin.utils.skyblock.dungeon.M7Phases
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents
 import net.minecraft.client.Minecraft
 import net.minecraft.client.gui.GuiGraphicsExtractor
-import net.minecraft.client.gui.screens.Screen
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen
 import kotlin.math.pow
 import kotlin.math.roundToInt
@@ -66,8 +65,8 @@ object Savepoint : Module(
     private var confirmAt = 0L
 
     val savepointEnabled by BooleanSetting("Enabled", true, desc = "")
-    val delay by NumberSetting("Delay", 250, 0..1000, 10, desc = "Normal auto-leap delay; ignored in Schizo Mode")
-    val schizoMode by BooleanSetting("Schizo Mode", true, desc = "Press any Key in Leap menu to leap to savepointed")
+    val delay by NumberSetting("Delay", 250, 0..1000, 10, desc = "Auto-leap delay in normal mode; hidden while Schizo Mode is on").withDependency { !schizoMode }
+    val schizoMode by BooleanSetting("Schizo Mode", true, desc = "Glow only: shows the planner's target without leaping. Off = auto-leap after Delay and close the menu")
     val dryRun by BooleanSetting("Dry run", false, desc = "Log the leap decision trace without clicking")
     val verboseLog by BooleanSetting("Verbose logging", true, desc = "Write decisions, leaps and tracker events to config/leaputils/savepoint.log pls enable this, test it and send over to witherbl_de")
     val pauseKey by KeybindSetting("Pause key", -1, desc = "Pauses or resumes Savepoint").onPress { togglePause() }
@@ -260,7 +259,6 @@ object Savepoint : Module(
         Landmarks.load()
         presetConds = SavepointPresets.loadConds()
         stepMeta = SavepointPresets.loadStepMeta()
-        SchizoLeapInput.registerHandler(::shouldWaitForSchizoKeypress)
         SpLog.session()
         SpLog.info("init", "settings: filter=$floorFilter delay=$delay schizo=$schizoMode dryRun=$dryRun variants=$stormVariant s1..s4=$goldorS1/$goldorS2/$goldorS3/$goldorS4 flags=$flagI4/$flagEarlyEntry/$flagMageCore landmarks=${Landmarks.all.keys.joinToString(",")}")
 
@@ -316,20 +314,6 @@ object Savepoint : Module(
                         val cell = SpCell(stage, step.step, myClassCached ?: DungeonClass.MAGE)
                         val rule = rules[cell]
                         if (rule != null && rule.target != SpTgt.NONE) {
-                            val targetClass = when (rule.target) {
-                                SpTgt.BERSERK -> DungeonClass.BERSERK
-                                SpTgt.ARCHER -> DungeonClass.ARCHER
-                                SpTgt.MAGE -> DungeonClass.MAGE
-                                SpTgt.TANK -> DungeonClass.TANK
-                                SpTgt.HEALER -> DungeonClass.HEALER
-                                else -> null
-                            }
-                            val teammate = if (targetClass != null) {
-                                runCatching { DungeonUtils.leapTeammates }.getOrDefault(emptyList())
-                                    .firstOrNull { it.clazz == targetClass && !it.isDead }
-                            } else {
-                                null
-                            }
                             guiGlowTargetIndex = -1
                             lastStatus = "Trigger: $overrideCondition -> ${rule.target.label}"
                         } else {
@@ -357,22 +341,23 @@ object Savepoint : Module(
                 val rules = buildRules()
                 val ctx = buildCtx(steps, screen)
                 val plan = SavepointEngine.decide(ctx, rules)
-                val targetIdx = if (plan is SpPlan.Leap) findTargetIndex(plan.target.name) else -1
-                guiGlowTargetIndex = targetIdx
+                guiGlowTargetIndex = glowIndexFor(plan)
                 lastStatus = when (plan) {
                     is SpPlan.Hold -> "Holding: ${plan.label}"
                     is SpPlan.Wait -> "Waiting: ${plan.reason}"
                     else -> null
                 }
                 if (dryRun) trace(plan) else logPlan(plan)
+                if (plan is SpPlan.SkipStep) {
+                    consumed += plan.step
+                    modMessage("[Savepoint] skipping ${plan.step.key}: ${plan.reason}")
+                }
                 return@on
             }
 
-            if (!schizoMode && now - menuOpenedAt < delay) return@on
-            if (schizoMode && !SchizoLeapInput.consumeKeyPress(screen)) return@on
-
             val steps = activeSteps()
             if (steps.isEmpty()) {
+                guiGlowTargetIndex = -1
                 val key = "E:${phase()}:${GoldorTracker.section}"
                 if (key != lastTraceKey) {
                     lastTraceKey = key
@@ -385,12 +370,17 @@ object Savepoint : Module(
             val rules = buildRules()
             val plan = SavepointEngine.decide(buildCtx(steps, screen), rules)
             updateTimings(plan, now)
+            guiGlowTargetIndex = glowIndexFor(plan)
             lastStatus = when (plan) {
                 is SpPlan.Hold -> "Holding: ${plan.label}"
                 is SpPlan.Wait -> "Waiting: ${plan.reason}"
                 else -> null
             }
             if (dryRun) trace(plan) else logPlan(plan)
+
+            // Auto mode: glow the target during the Delay, then leap and close the menu.
+            if (now - menuOpenedAt < delay) return@on
+
             when (plan) {
                 is SpPlan.Leap -> executeLeap(plan, screen)
                 is SpPlan.SkipStep -> {
@@ -897,6 +887,13 @@ object Savepoint : Module(
         }
     }
 
+    private fun glowIndexFor(plan: SpPlan): Int = when (plan) {
+        is SpPlan.Leap -> findTargetIndex(plan.target.name)
+        is SpPlan.Hold -> findTargetIndex(plan.target.name)
+        is SpPlan.Wait -> plan.target?.let { findTargetIndex(it.name) } ?: -1
+        else -> -1
+    }
+
     private fun executeLeap(plan: SpPlan.Leap, screen: AbstractContainerScreen<*>) {
         if (dryRun) {
             consumed += plan.step
@@ -922,6 +919,8 @@ object Savepoint : Module(
                 "menuAge=${System.currentTimeMillis() - menuOpenedAt}ms"
         )
         modMessage("[Savepoint] ${plan.label}")
+        // Odin's leapTo only clicks the slot; close the menu ourselves so the auto-leap feels instant.
+        runCatching { Minecraft.getInstance().gui.setScreen(null) }
     }
 
     private fun logPlan(plan: SpPlan) {
@@ -981,15 +980,6 @@ object Savepoint : Module(
         val armed = SavepointEngine.armedStep(steps, consumed, rules, myClass) ?: return null
         val rule = rules[SpCell(armed.stage, armed.step, myClass)] ?: return null
         return "\u00a77Next: \u00a7f${rule.target.label} \u00a77(${armed.key})"
-    }
-
-    private fun shouldWaitForSchizoKeypress(screen: Screen): Boolean {
-        val container = screen as? AbstractContainerScreen<*> ?: return false
-        if (!enabled || !savepointEnabled || !schizoMode || leapedThisMenu || paused) return false
-        if (!isLeapScreen(container)) return false
-        if (!runCatching { DungeonUtils.inBoss }.getOrDefault(false)) return false
-        if (!floorOk()) return false
-        return SavepointEngine.armedStep(activeSteps(), consumed, buildRules(), myClassCached) != null
     }
 
     private fun isLeapScreen(screen: AbstractContainerScreen<*>): Boolean {
