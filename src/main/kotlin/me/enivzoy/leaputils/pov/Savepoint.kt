@@ -284,7 +284,10 @@ object Savepoint : Module(
         statusHud.enabled = true
         Landmarks.load()
         presetConds = SavepointPresets.loadConds()
-        stepMeta = SavepointPresets.loadStepMeta()
+        val bundledMeta = SavepointPresets.loadBundled("adg")?.stepMeta ?: emptyMap()
+        val instanceMeta = SavepointPresets.loadStepMeta()
+        stepMeta = bundledMeta + instanceMeta
+        if (instanceMeta.size < bundledMeta.size) SavepointPresets.saveStepMeta(stepMeta)
         SpLog.session()
         SpLog.info("init", "settings: filter=$floorFilter delay=$delay schizo=$schizoMode dryRun=$dryRun variants=$stormVariant s1..s4=$goldorS1/$goldorS2/$goldorS3/$goldorS4 flags=$flagI4/$flagEarlyEntry/$flagMageCore landmarks=${Landmarks.all.keys.joinToString(",")}")
 
