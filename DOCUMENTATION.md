@@ -134,6 +134,27 @@ The mod reads this from chat lines like *"[BOSS] Goldor: Who dares trespass into
 
 So `P3.S2.2 / MAGE → HEALER` means: *"In Goldor section 2, step 2, if you're Mage, leap to Healer."*
 
+### What `s1`, `s2`, `s3` mean (steps)
+
+Steps are **ordered leap slots inside one section** — not sub-sections, and not the same thing as Goldor's S1/S2/S3. `s1` is used first, then `s2`, then `s3`.
+
+- Each row fires **once** per run: after a successful leap it is consumed, so it won't repeat.
+- The ladder is driven by **your leaps**, not a timer. Savepoint does not know when you finish a terminal — the first unconsumed row where your class has a target is what fires when you open the menu and leap. The next menu open evaluates the next row.
+- A class with `none` in a row skips that slot and moves to its next armed row. Conditions can gate a row (landmark/hold/objective/`anyAfter`).
+- Consumption for Goldor stages resets when the section advances 1→2→3→4, and on floor enter or when you leave the boss.
+
+`P3.S4` is the clearest example — it has three slots, in this order:
+
+| Row | Intended moment | ADG default |
+|---|---|---|
+| `P3.S4/1` (s1) | S4 entry, right after the S3 gate | Archer → Tank/Mage, then run to terminal 1 |
+| `P3.S4/2` (s2) | after your S4 terminal / levers | Archer/Healer/Tank → Mage |
+| `P3.S4/3` (s3) | **recore**: after i4/levers, when the core opens | Berserk/Healer → Mage |
+
+If all three rows target Mage, your **first three S4 leaps** go to Mage — one row per leap — not one leap. If you only want the recore, set `s3` and leave `s1/s2` as none; the first S4 menu open will then use `s3`, so in practice only open the menu at the core (or give `s3` a condition that gates it).
+
+The recore row stays armed after the core opens: the server flips the tracker to section 5 before the leap menu is usable, so Savepoint keeps `P3.S4/3` available at section 5.
+
 ### Targets
 
 | Target | Meaning |
@@ -172,7 +193,7 @@ You never leap to yourself.
 
 ### Consumed steps
 
-Once you leap for a cell, that step is **consumed** (marked done) so it won't repeat. Consumption resets when Goldor's section changes, when you leave the boss, or on floor enter.
+Once you leap for a cell, that step is **consumed** (marked done) so it won't repeat. Consumption resets when Goldor's section advances 1→2→3→4, when you leave the boss, or on floor enter. (It does *not* reset going 4→5, so the recore step is not repeated after the core opens.)
 
 ---
 

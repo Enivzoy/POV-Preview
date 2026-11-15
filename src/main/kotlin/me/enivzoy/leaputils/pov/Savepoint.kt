@@ -158,39 +158,65 @@ object Savepoint : Module(
         SpStage.P5 -> "Wither King phase"
     }
 
+    private fun stepWhat(stage: SpStage, step: Int): String = when (stage) {
+        SpStage.P1 -> when (step) {
+            1 -> "first Maxor crystal checkpoint: berserk to healer, archer to tank"
+            2 -> "second Maxor crystal checkpoint: berserk to healer, archer to tank"
+            else -> "after crystals: tank and archer leap to mage to finish Maxor"
+        }
+        SpStage.P2_GY, SpStage.P2_OLDPY, SpStage.P2_NEWPY ->
+            "storm route step $step (see the preset's POV notes)"
+        SpStage.PREDEV -> "pre-dev leap to the teammate waiting at the start of Goldor section 1 (arms during Storm and while you are down in Goldor before the boss starts; during late Maxor the drop-off row handles the berserk at the py drop-off instead)"
+        SpStage.P3_S1_ENTRY -> "move to the Simon Says standing spot after Storm dies"
+        SpStage.P3_S1 -> if (step == 1) "leap after your section 1 terminals" else "second section 1 leap (e.g. berserk leaping mage at 9 masks)"
+        SpStage.P3_S2 -> if (step == 1) "S2 entry: tank leaps to berserk" else "after S2 terminals: leap to healer at ee3"
+        SpStage.P3_S3 -> if (step == 1) "leap after your section 3 terminal" else "core leap (in the ADG roleset this is also tank's mage leap after levers)"
+        SpStage.P3_S4 -> when (step) {
+            1 -> "section 4 entry: archer leaps to tank at terminal 1 when tank has S3 levers"
+            2 -> "after S4 terminals: archer and tank leap to mage"
+            else -> "after i4 / levers: berserk and healer leap to mage for recore"
+        }
+        SpStage.P4 -> when (step) {
+            1 -> "Necron drop: mage leaps to healer"
+            2 -> "70m fire phase: archer, berserk and tank leap to healer"
+            else -> "relic handoffs: healer/mage to berserk, tank to archer"
+        }
+        SpStage.P5 -> "leap during wither king"
+    }
+
+    private fun builtinStepLabel(stage: SpStage, step: Int): String = when (stage) {
+        SpStage.P1 -> when (step) {
+            1 -> "first crystals"
+            2 -> "second crystals"
+            else -> "finish Maxor"
+        }
+        SpStage.P2_GY, SpStage.P2_OLDPY, SpStage.P2_NEWPY -> "storm step $step"
+        SpStage.PREDEV -> "pre-dev"
+        SpStage.P3_S1_ENTRY -> "S1 entry"
+        SpStage.P3_S1 -> if (step == 1) "after S1 terminals" else "S1 masks"
+        SpStage.P3_S2 -> if (step == 1) "S2 entry" else "after S2 terminals"
+        SpStage.P3_S3 -> if (step == 1) "after S3 terminals" else "core leap after levers"
+        SpStage.P3_S4 -> when (step) {
+            1 -> "S4 entry"
+            2 -> "after S4 terminals"
+            else -> "recore (after levers)"
+        }
+        SpStage.P4 -> when (step) {
+            1 -> "Necron drop"
+            2 -> "70m phase"
+            else -> "relic handoffs"
+        }
+        SpStage.P5 -> "wither king"
+    }
+
     private fun cellDesc(stage: SpStage, step: Int, c: DungeonClass): String {
         val where = stageTitle(stage)
-        val what = when (stage) {
-            SpStage.P1 -> when (step) {
-                1 -> "first Maxor crystal checkpoint: berserk to healer, archer to tank"
-                2 -> "second Maxor crystal checkpoint: berserk to healer, archer to tank"
-                else -> "after crystals: tank and archer leap to mage to finish Maxor"
-            }
-            SpStage.P2_GY, SpStage.P2_OLDPY, SpStage.P2_NEWPY ->
-                "storm route step $step (see the preset's POV notes)"
-            SpStage.PREDEV -> "pre-dev leap to the teammate waiting at the start of Goldor section 1 (arms during Storm and while you are down in Goldor before the boss starts; during late Maxor the drop-off row handles the berserk at the py drop-off instead)"
-            SpStage.P3_S1_ENTRY -> "move to the Simon Says standing spot after Storm dies"
-            SpStage.P3_S1 -> if (step == 1) "leap after your section 1 terminals" else "second section 1 leap (e.g. berserk leaping mage at 9 masks)"
-            SpStage.P3_S2 -> if (step == 1) "S2 entry: tank leaps to berserk" else "after S2 terminals: leap to healer at ee3"
-            SpStage.P3_S3 -> if (step == 1) "leap after your section 3 terminal" else "core leap (in the ADG roleset this is also tank's mage leap after levers)"
-            SpStage.P3_S4 -> when (step) {
-                1 -> "section 4 entry: archer leaps to tank at terminal 1 when tank has S3 levers"
-                2 -> "after S4 terminals: archer and tank leap to mage"
-                else -> "after i4 / levers: berserk and healer leap to mage for recore"
-            }
-            SpStage.P4 -> when (step) {
-                1 -> "Necron drop: mage leaps to healer"
-                2 -> "70m fire phase: archer, berserk and tank leap to healer"
-                else -> "relic handoffs: healer/mage to berserk, tank to archer"
-            }
-            SpStage.P5 -> "leap during wither king"
-        }
         val mode = when (stage) {
             SpStage.P4 -> " Only used while Necron target mode is Class."
             SpStage.P5 -> " Only used while P5 target mode is Class."
             else -> ""
         }
-        return "$where - $what. You are ${c.name.lowercase()}: pick who the menu should click, None disables this cell.$mode"
+        return "$where - ${stepWhat(stage, step)}. You are ${c.name.lowercase()}: pick who the menu should click, None disables this cell.$mode"
     }
 
     private fun cell(stage: SpStage, step: Int, c: DungeonClass, vis: () -> Boolean): SelectorSetting<SpTgt> {
@@ -553,9 +579,10 @@ object Savepoint : Module(
         val conds = (preset.conds ?: emptyMap()).mapValues { (_, v) -> SavepointPresets.toCond(v) }
         presetConds = conds
         SavepointPresets.saveConds(conds)
-        val meta = preset.stepMeta ?: emptyMap()
-        stepMeta = meta
-        SavepointPresets.saveStepMeta(meta)
+        preset.stepMeta?.takeIf { it.isNotEmpty() }?.let {
+            stepMeta = it
+            SavepointPresets.saveStepMeta(it)
+        }
         SpLog.info("preset", "loaded ${preset.label ?: preset.id}: applied=$applied skipped=$skipped conds=${conds.entries.joinToString(", ") { "${it.key}=${it.value.describe()}" }}")
         modMessage("[Savepoint] loaded ${preset.label ?: preset.id}: $applied cells set, $skipped entries skipped, ${conds.size} conds")
     }
@@ -620,7 +647,7 @@ object Savepoint : Module(
     )
 
     internal fun planStages(): List<PlanStageInfo> = buildList {
-        add(PlanStageInfo(SpStage.P1, stageTitle(SpStage.P1), maxor, null))
+        add(PlanStageInfo(SpStage.P1, stageTitle(SpStage.P1), maxor, "s1/s2 crystals · s3 finish"))
 
         val storm = stormStage()
         val stormTitle = "${stageTitle(storm)} (variant: ${stormVariant.name})"
@@ -637,11 +664,11 @@ object Savepoint : Module(
             add(PlanStageInfo(storm, stormTitle, this@Savepoint.storm, null, 2..storm.steps))
         }
 
-        add(PlanStageInfo(SpStage.P3_S1_ENTRY, stageTitle(SpStage.P3_S1_ENTRY), goldor && goldorS1, null))
-        add(PlanStageInfo(SpStage.P3_S1, stageTitle(SpStage.P3_S1), goldor && goldorS1, null))
-        add(PlanStageInfo(SpStage.P3_S2, stageTitle(SpStage.P3_S2), goldor && goldorS2, null))
-        add(PlanStageInfo(SpStage.P3_S3, stageTitle(SpStage.P3_S3), goldor && goldorS3, null))
-        add(PlanStageInfo(SpStage.P3_S4, stageTitle(SpStage.P3_S4), goldor && goldorS4, null))
+        add(PlanStageInfo(SpStage.P3_S1_ENTRY, stageTitle(SpStage.P3_S1_ENTRY), goldor && goldorS1, "s1 = SS standing spot"))
+        add(PlanStageInfo(SpStage.P3_S1, stageTitle(SpStage.P3_S1), goldor && goldorS1, "s1 after terms · s2 masks"))
+        add(PlanStageInfo(SpStage.P3_S2, stageTitle(SpStage.P3_S2), goldor && goldorS2, "s1 entry · s2 ee3"))
+        add(PlanStageInfo(SpStage.P3_S3, stageTitle(SpStage.P3_S3), goldor && goldorS3, "s1 after terms · s2 core"))
+        add(PlanStageInfo(SpStage.P3_S4, stageTitle(SpStage.P3_S4), goldor && goldorS4, "s1 entry · s2 terms · s3 recore"))
         add(PlanStageInfo(SpStage.P4, stageTitle(SpStage.P4), necron,
             "target mode: ${necronTargetMode.name.lowercase()}${if (necronTargetMode == TargetMode.NEAREST) " @ '${necronLandmark.trim()}'" else ""}"))
         add(PlanStageInfo(SpStage.P5, stageTitle(SpStage.P5), witherKing,
@@ -658,9 +685,11 @@ object Savepoint : Module(
     internal fun condLabel(stage: SpStage, step: Int, clazz: DungeonClass): String? =
         presetConds["${stage.id}/${step}/${clazz.name}"]?.describe() ?: presetConds["${stage.id}/${step}"]?.describe()
 
-    internal fun stepLabel(stage: SpStage, step: Int): String? = stepMeta["${stage.id}.$step"]?.label
+    internal fun stepLabel(stage: SpStage, step: Int): String? =
+        stepMeta["${stage.id}.$step"]?.label ?: builtinStepLabel(stage, step)
 
-    internal fun stepDesc(stage: SpStage, step: Int): String? = stepMeta["${stage.id}.$step"]?.desc
+    internal fun stepDesc(stage: SpStage, step: Int): String? =
+        stepMeta["${stage.id}.$step"]?.desc ?: stepWhat(stage, step)
 
     internal fun exportPlanJson(): String {
         val cells = LinkedHashMap<String, MutableMap<String, String>>()
@@ -683,7 +712,7 @@ object Savepoint : Module(
             )
         }
         return SavepointPresets.toJson(
-            PresetFile(id = "custom", label = "Savepoint custom plan", source = "leaputils planner", cells = cells, conds = conds)
+            PresetFile(id = "custom", label = "Savepoint custom plan", source = "leaputils planner", cells = cells, conds = conds, stepMeta = stepMeta)
         )
     }
 
