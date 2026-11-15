@@ -247,4 +247,57 @@ class SavepointEngineTest {
         assertNull(SavepointEngine.armedStep(listOf(SpStep(SpStage.P2_GY, 1), SpStep(SpStage.P2_GY, 2)), emptySet(), rules, DungeonClass.TANK))
         assertNull(SavepointEngine.armedStep(listOf(SpStep(SpStage.P2_GY, 1), SpStep(SpStage.P2_GY, 2)), emptySet(), rules, null))
     }
+
+    @Test
+    fun p3CoreEntranceKeepsRecoreArmed() {
+        assertEquals(listOf(SpStep(SpStage.P3_S4, 3)), SavepointEngine.p3Steps(5, true, true, true, true))
+        assertEquals(emptyList(), SavepointEngine.p3Steps(5, true, true, true, false))
+    }
+
+    @Test
+    fun p3SectionFourStillArmsAllS4Steps() {
+        assertEquals((1..SpStage.P3_S4.steps).map { SpStep(SpStage.P3_S4, it) }, SavepointEngine.p3Steps(4, true, true, true, true))
+        assertEquals(emptyList(), SavepointEngine.p3Steps(6, true, true, true, true))
+        assertEquals(emptyList(), SavepointEngine.p3Steps(1, false, true, true, true))
+    }
+
+    @Test
+    fun holdOnlyCondDoesNotRequireLandmark() {
+        val condRules = mapOf(
+            SpCell(SpStage.P3_S4, 3, DungeonClass.BERSERK) to SpRule(
+                SpTgt.MAGE,
+                cond = SpCond(landmark = "", holdMs = 4000)
+            )
+        )
+        val teammates = listOf(tm("MageGuy", DungeonClass.MAGE, x = 1.0, y = 2.0, z = 3.0))
+        val base = { timings: Map<String, Long> ->
+            ctx(steps = listOf(SpStep(SpStage.P3_S4, 3)), myClass = DungeonClass.BERSERK, teammates = teammates, timings = timings)
+        }
+        val holding = SavepointEngine.decide(base(emptyMap()), condRules)
+        assertIs<SpPlan.Hold>(holding)
+        assertEquals(4000L, holding.needMs)
+        assertIs<SpPlan.Leap>(SavepointEngine.decide(base(mapOf("hold:P3.S4/3/MageGuy" to 4000L)), condRules))
+    }
+
+    @Test
+    fun waitCarriesPendingTargetForGlow() {
+        val condRules = mapOf(
+            SpCell(SpStage.P3_S4, 3, DungeonClass.BERSERK) to SpRule(
+                SpTgt.MAGE,
+                cond = SpCond(SpSubject.TARGET, SpMode.NEAR, "core", 5.0, onFail = SpOnFail.ANY_AFTER, anyAfterMs = 5000)
+            )
+        )
+        val teammates = listOf(tm("MageGuy", DungeonClass.MAGE, x = 100.0, y = 0.0, z = 0.0))
+        val plan = SavepointEngine.decide(
+            ctx(
+                steps = listOf(SpStep(SpStage.P3_S4, 3)),
+                myClass = DungeonClass.BERSERK,
+                teammates = teammates,
+                landmarks = mapOf("core" to SpLandmark(0.0, 0.0, 0.0))
+            ),
+            condRules
+        )
+        assertIs<SpPlan.Wait>(plan)
+        assertEquals("MageGuy", plan.target?.name)
+    }
 }

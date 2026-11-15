@@ -161,6 +161,21 @@ object SavepointEngine {
         return null
     }
 
+    /**
+     * P3 steps for a Goldor section. Section 5 means the core entrance has opened; the server flips
+     * it a tick after the last lever, before the recore menu can be opened, so keep the recore row
+     * (P3.S4/3) armed there. Without this, P3.S4 disappears exactly when the recore leap is needed.
+     */
+    fun p3Steps(section: Int, s1: Boolean, s2: Boolean, s3: Boolean, s4: Boolean): List<SpStep> = when (section) {
+        0 -> listOf(SpStep(SpStage.PREDEV, 1))
+        1 -> if (s1) listOf(SpStep(SpStage.P3_S1_ENTRY, 1), SpStep(SpStage.P3_S1, 1), SpStep(SpStage.P3_S1, 2)) else emptyList()
+        2 -> if (s2) (1..SpStage.P3_S2.steps).map { SpStep(SpStage.P3_S2, it) } else emptyList()
+        3 -> if (s3) listOf(SpStep(SpStage.P3_S3, 1), SpStep(SpStage.P3_S3, 2)) else emptyList()
+        4 -> if (s4) (1..SpStage.P3_S4.steps).map { SpStep(SpStage.P3_S4, it) } else emptyList()
+        5 -> if (s4) listOf(SpStep(SpStage.P3_S4, 3)) else emptyList()
+        else -> emptyList()
+    }
+
     fun decide(ctx: SpCtx, rules: Map<SpCell, SpRule>): SpPlan {
         val myClass = ctx.myClass ?: return SpPlan.Wait(null, "your class is unknown")
 
@@ -197,30 +212,26 @@ object SavepointEngine {
                 py = target.y
                 pz = target.z
             }
-            if (px == null || py == null || pz == null) {
-                return fail(cond, sstep, "$who position unknown", ctx, target, label)
+
+            // A cond with no landmark/coords is a pure hold timer (the ADG preset uses these).
+            val lm: SpLandmark? = when {
+                cond.hasRawPos -> SpLandmark(cond.x!!, cond.y!!, cond.z!!)
+                cond.landmark.isNotBlank() -> ctx.landmarks[cond.landmark]
+                    ?: return fail(cond, sstep, "landmark '${cond.landmark}' is missing (capture it with /leaputils landmark)", ctx, target, label)
+                else -> null
             }
 
-            val lm: SpLandmark
-            if (cond.hasRawPos) {
-                lm = SpLandmark(cond.x!!, cond.y!!, cond.z!!)
-            } else {
-                if (cond.landmark.isBlank()) {
-                    return fail(cond, sstep, "no landmark or coordinates configured", ctx, target, label)
+            if (lm != null) {
+                if (px == null || py == null || pz == null) {
+                    return fail(cond, sstep, "$who position unknown", ctx, target, label)
                 }
-                val named = ctx.landmarks[cond.landmark]
-                if (named == null) {
-                    return fail(cond, sstep, "landmark '${cond.landmark}' is missing (capture it with /leaputils landmark)", ctx, target, label)
+                val dx = px - lm.x
+                val dy = py - lm.y
+                val dz = pz - lm.z
+                val dist = sqrt(dx * dx + dy * dy + dz * dz)
+                if (dist > cond.effectiveRadius) {
+                    return fail(cond, sstep, "${target.clazz.name.lowercase()} ${target.name} not within ${cond.effectiveRadius.toInt()}m of ${cond.describe()}", ctx, target, label)
                 }
-                lm = named
-            }
-
-            val dx = px - lm.x
-            val dy = py - lm.y
-            val dz = pz - lm.z
-            val dist = sqrt(dx * dx + dy * dy + dz * dz)
-            if (dist > cond.effectiveRadius) {
-                return fail(cond, sstep, "${target.clazz.name.lowercase()} ${target.name} not within ${cond.effectiveRadius.toInt()}m of ${cond.describe()}", ctx, target, label)
             }
 
             val key = "hold:${sstep.key}/${target.name}"

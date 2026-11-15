@@ -806,19 +806,10 @@ object Savepoint : Module(
                     for (s in 2..stormStage().steps) add(SpStep(stormStage(), s))
                 }
             }
-            M7Phases.P3 -> {
-                if (!goldor) {
-                    emptyList()
-                } else {
-                    when (GoldorTracker.section) {
-                        0 -> listOf(SpStep(SpStage.PREDEV, 1))
-                        1 -> if (goldorS1) listOf(SpStep(SpStage.P3_S1_ENTRY, 1), SpStep(SpStage.P3_S1, 1), SpStep(SpStage.P3_S1, 2)) else emptyList()
-                        2 -> if (goldorS2) (1..SpStage.P3_S2.steps).map { SpStep(SpStage.P3_S2, it) } else emptyList()
-                        3 -> if (goldorS3) listOf(SpStep(SpStage.P3_S3, 1), SpStep(SpStage.P3_S3, 2)) else emptyList()
-                        4 -> if (goldorS4) (1..SpStage.P3_S4.steps).map { SpStep(SpStage.P3_S4, it) } else emptyList()
-                        else -> emptyList()
-                    }
-                }
+            M7Phases.P3 -> if (goldor) {
+                SavepointEngine.p3Steps(GoldorTracker.section, goldorS1, goldorS2, goldorS3, goldorS4)
+            } else {
+                emptyList()
             }
             M7Phases.P4 -> if (necron) (1..SpStage.P4.steps).map { SpStep(SpStage.P4, it) } else emptyList()
             M7Phases.P5 -> if (witherKing) (1..SpStage.P5.steps).map { SpStep(SpStage.P5, it) } else emptyList()
