@@ -316,12 +316,25 @@ the aborted prediction and runs the normal menu path; it never sends a packet.
 `{"run-000001": {"players": {"<uuid>": ["[0]", "TANK"]}, "slotByUuid": {"<uuid>": 11}}}`. The
 `[n]` value is the ordinal among the observed teammate heads and `slotByUuid` is the absolute
 container slot, kept separate so an ordinal is never mistaken for a slot. The file is local only,
-atomic (temp file then replace), capped at 1 MB, and never uploaded. One observation never
-authorises a prediction: two menus must agree before `LeapOrderCache.validated()` is true.
-The uuid is read from the item's real profile component, never guessed from a name or skin.
+atomic (temp file then replace), rotated to `leaporder.log.old` at 1 MB, preserves earlier runs,
+and is never uploaded. One observation never authorises a prediction: two menus in the same run
+must agree before `LeapOrderCache.validated()` is true. A new world, a new dungeon run or a changed
+party fingerprint invalidates the slot mapping, so `run-000002` never inherits `run-000001`'s
+slots. The uuid is read from the item's real profile component, never guessed from a name or skin.
+
+Diagnostics are bounded: one observation per menu, not one per tick. Contents that arrive a tick
+after the screen are retried quietly until the heads are present.
+
+`Profile timings` writes both paths in the same shape, so a normal attempt and a prefire attempt
+can be compared in `savepoint.log`: `path=`, `useItemToClick`, `menuObserved`, `dispatchToClose`,
+`result` and `total`, all measured with `System.nanoTime()`. A prefire attempt is never marked
+successful from a local send; only an observed result counts.
 
 Hidden-GUI rendering (`Hide Spirit Leap GUI Rendering`) is **not implemented**: suppressing the
-draw event is explicitly out of scope, so the menu stays visible.
+draw event is explicitly out of scope, so the menu stays visible. The first-leap-cold /
+later-leaps-prefired policy is also **not implemented**, because it depends on the same unverified
+click. `Require verified slot order` and `Prefire fallback to normal menu` stay ON (they are hard
+gates inside a path that is itself off), so they cannot weaken anything while prefire is disabled.
 
 ### Distance conditions
 
