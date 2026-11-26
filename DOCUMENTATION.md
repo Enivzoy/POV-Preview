@@ -197,7 +197,168 @@ Once you leap for a cell, that step is **consumed** (marked done) so it won't re
 
 ---
 
-## 5. Commands
+## 5. Fast Leap - click to leap with rules
+
+Fast Leap is the click-driven cousin of Savepoint. You hold a Spirit Leap / Infinite Spirit Leap
+item and left click: the mod evaluates an ordered rule list against the current dungeon state and,
+if one rule matches, picks a teammate, clicks them in the leap menu, and (by default) closes the
+menu about 1 ms after the click is dispatched. It never waits for the teleport to land.
+Savepoint still exists for the "open the menu yourself and follow the guide" workflow.
+
+### How a rule is evaluated
+
+1. Rules are ordered by `priority` descending; equal priorities keep their order in the list.
+2. Each rule first passes its gates: trigger, location (boss/clear), floor, phase/section/stage,
+   self-region and excluded-region checks. A failed gate falls through to the next rule.
+3. The first rule that picks a valid target **and** passes its conditions wins. Failed rules never
+   block later ones.
+4. With `Collect all and pick best` ON, every matching rule is evaluated and the one with the
+   lowest measured distance wins (ties keep list order). It is OFF by default, so the default is
+   still first-match-wins.
+5. If nothing matched and `Fallback` is set, the fallback runs: nearest teammate to a landmark,
+   or the last teammate you leaped to (`LAST_LEAPED`).
+
+Target selection never guesses a position. A rule with a landmark condition fails with
+`missing landmark <name>` until you capture it.
+
+### The rule JSON and the config override
+
+On first run the built-in pack is used. To customise, create
+`config/leaputils/fastleap.json`. It fully replaces the built-in pack when it parses and has at
+least one rule:
+
+```json
+{
+  "disabled": ["s4"],
+  "rules": [
+    {
+      "id": "mage-at-acacia",
+      "name": "Mage at acacia",
+      "enabled": true,
+      "priority": 500,
+      "inBoss": true,
+      "targetType": "CLASS",
+      "targetClass": "MAGE",
+      "conditions": [
+        { "subject": "TARGET", "landmark": "acacia", "errorMinDistance": 3.0, "errorMaxDistance": 15.0 }
+      ]
+    }
+  ]
+}
+```
+
+Fields: `id`, `name`, `enabled`, `priority`, `phase` (chat quoi phase 1-5), `phaseAnyOf`,
+`phaseAt` (position-derived phase), `stage`, `section` (Goldor 1-5), `inBoss`, `triggers`
+(`CLICK`, `MENU_OPEN`, `KEYBIND`, `COMMAND`), `targetType`
+(`NAME`, `CLASS`, `NEAREST_LANDMARK`, `FIRST_IN_MENU`, `DOOR_OPENER`), `targetClass`, `targetName`,
+`landmark`, `radius`, `selfRegion`, `excludeRegions`, `conditions`. Regions can be a built-in id
+(`yellow_pad`, `purple_pad`, `between_pads`, `middle_platform`, `crystal_a`, `crystal_b`, `i4_spot`)
+or an inline AABB/point object.
+
+`disabled` is the list `/leaputils fastleap toggle <id>` edits. `/leaputils fastleap list` prints
+`on`/`off` per rule.
+
+### Settings (grouped, with defaults)
+
+**Triggers**
+- Left click **ON**, only while holding leap **ON**, require sneak **OFF**, cancel on no-match **OFF**
+- On menu open **OFF**, open delay **0 ms**
+- Trigger debounce **250 ms**, max leaps per second **2**
+- Keybind **unbound**, `Leap now` action runs the same evaluation
+
+**Allowed contexts**
+- Floors **F7 + M7**
+- Locations **Boss + Clear**
+- Ignore phase gates **OFF**
+- Pause when GUI open **ON**, when dead **ON**, when solo or 1 teammate **ON**
+- Only while holding leap **ON**, auto swap **ON**, swap back **OFF**, respect cooldown **ON**
+- Door opener leap **OFF**, disable after Blood open **ON**
+- Ignore self **ON**
+
+**Target and position**
+- Leap mode **By class**, case-insensitive names **ON**
+- Default radius **6.0**, horizontal only **OFF** (3D is the default; per-condition overrides win)
+- Skip dead **ON**, skip not-in-menu **ON**, skip last leaped **OFF**
+- Blacklist / whitelist **empty** (comma-separated names, applied before target selection)
+- Collect all and pick best **OFF**
+- Fallback **NOTHING**, fallback landmark **empty**
+- Unknown position always **fails**; there is no "guess" mode
+- Map fallback is **not implemented** (no verified XZ source in Odin on this MC version)
+
+**Feedback**
+- Feedback **errors only**, dry run **OFF**, profile timings **OFF**
+- HUD target line **OFF**, sound **OFF**
+- Repeated warnings are throttled to once per rule/reason per 5 s
+- Close GUI after teammate click dispatch **ON**, GUI close delay **1 ms**
+
+### Distance conditions
+
+A condition with a landmark or point and `errorMinDistance`/`errorMaxDistance` uses the inclusive
+`min..max` interval. The module defaults come from Savepoint's **Error / Min Distance (3.0)** and
+**Error / Max Distance (15.0)**. A condition without the interval keeps the legacy
+`AT`/`NEAR`/`IN` radius behaviour, so old presets load exactly as before.
+
+### Worked examples
+
+**Mage at acacia** (the shipped template, disabled until you capture the landmark):
+
+1. Stand where the Mage should be and run `/leaputils landmark acacia`.
+2. `/leaputils fastleap list` shows `off mage-at-acacia`; run `/leaputils fastleap toggle mage-at-acacia`.
+3. Now a left click leaps to the Mage whenever they are 3.0-15.0 blocks from `acacia`.
+   Without the landmark the rule fails with `missing landmark acacia (capture it with ...)`.
+
+**Nearest to `necron_spot`:**
+
+```json
+{ "id": "necron-near", "name": "Nearest to necron spot", "priority": 400,
+  "targetType": "NEAREST_LANDMARK", "landmark": "necron_spot", "radius": 8.0 }
+```
+
+`necron_spot` ships as a default landmark, so this works immediately. The nearest eligible
+teammate within 8 blocks wins.
+
+**"If I'm at yellow pad, leap the Healer":**
+
+```json
+{ "id": "yellow-healer", "name": "Yellow pad healer", "priority": 700, "phase": 2,
+  "selfRegion": "yellow_pad", "targetType": "CLASS", "targetClass": "HEALER" }
+```
+
+The self-region gate is checked before target selection, so the rule only fires while you stand
+in the yellow pad AABB.
+
+### Testing a rule
+
+`/leaputils fastleap test <ruleId>` evaluates without leaping and prints:
+
+```
+[FastLeap] distance=7.4; allowed=3.0..15.0; axes=3D; target=Mage (mage); rule=mage-at-acacia; source=teammate
+```
+
+or `no match: <ruleId>: <reason>`. Use it after capturing a landmark to confirm the interval.
+
+### Importing a quoi config
+
+The Savepoint planner has a **quoi import** button. Importing a `quoi.json` fills every planner
+stage/step, writes the min/max error fields, and stores imported landmarks with the `quoicnfg-`
+prefix so they never collide with your own captures. Importing the same file twice does not
+duplicate anything.
+
+### Troubleshooting
+
+| Symptom | Cause / fix |
+|---|---|
+| `no match: missing landmark acacia` | Capture it: `/leaputils landmark acacia`, or fix the `landmark` name in the rule |
+| `position unknown` | The target entity is not loaded (too far / unloaded). Move closer |
+| Nothing happens on click | Check the item is a Spirit Leap / Infinite Spirit Leap, `Left click` is ON and you have a party |
+| `paused: solo or only N teammate` | Solo or one-teammate parties are paused; this is on purpose |
+| Leap does not fire after the menu closes | The close is scheduled 1 ms after the click is dispatched, but it is best-effort on the client thread; measure with `Profile timings` |
+| `max leaps per second reached` | Lower your click rate or raise the setting |
+| Menu stays open on a miss | Intentional: a failed or refused click never closes the menu |
+
+---
+
+## 6. Commands
 
 Run these in Minecraft chat (prefix with `/`):
 
@@ -208,10 +369,14 @@ Run these in Minecraft chat (prefix with `/`):
 | `/leaputils presets` | Checks GitHub for preset updates |
 | `/leaputils reload` | Reloads presets without restarting |
 | `/leaputils logs` | Opens the logs folder |
+| `/leaputils fastleap list` | Prints every Fast Leap rule with `on`/`off` |
+| `/leaputils fastleap toggle <ruleId>` | Enables or disables one rule |
+| `/leaputils fastleap go [ruleId]` | Evaluates now and leaps if something matches |
+| `/leaputils fastleap test <ruleId>` | Evaluates and prints the decision without leaping |
 
 ---
 
-## 6. The planner GUI
+## 7. The planner GUI
 
 `/leaputils plan` opens a screen where you can:
 
@@ -223,7 +388,7 @@ Run these in Minecraft chat (prefix with `/`):
 
 ---
 
-## 7. Files the mod creates
+## 8. Files the mod creates
 
 All under `config/leaputils/`:
 
@@ -236,11 +401,12 @@ All under `config/leaputils/`:
 | `steplabels.json` | Step names/descriptions from presets |
 | `presets/adg.json` | The bundled ADG preset |
 | `presets/mm7g.json` | The bundled MM7G preset |
+| `fastleap.json` | Optional Fast Leap rule pack override over the built-in pack |
 | `pov-cache/` | Cached room-geometry bundles (downloaded or built locally) |
 
 ---
 
-## 8. What's NOT automated
+## 9. What's NOT automated
 
 Savepoint only decides **who to leap to**. It does **not**:
 - Attack camp mobs
@@ -254,7 +420,7 @@ Those leaps rely on you opening the menu when the guide says to. The mod waits f
 
 ---
 
-## 9. Building from source
+## 10. Building from source
 
 You need JDK 25.
 
@@ -266,7 +432,7 @@ Output: `build/libs/pov-preview-1.0.0.jar`
 
 ---
 
-## 10. CI / GitHub Actions
+## 11. CI / GitHub Actions
 
 - **build.yml**: Builds on every push to `LeapUtils` (and main). Creates a GitHub release every 2 commits on LeapUtils with the jar attached.
 - **commit-notification.yml**: Posts commit info to a webhook on every push (all branches).
@@ -275,7 +441,7 @@ No action needed from you — both run automatically when you push.
 
 ---
 
-## 11. Troubleshooting
+## 12. Troubleshooting
 
 | Problem | Likely cause / fix |
 |---|---|

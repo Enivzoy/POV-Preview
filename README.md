@@ -109,6 +109,20 @@ It stops leaping once the blood door is opened (odin detection or the chat messa
 
 Delay and schizo mode work the same way as in Savepoint.
 
+## Fast Leap
+
+Click a Spirit Leap / Infinite Spirit Leap and the mod picks the target from an ordered rule list
+instead of you clicking a head. Rules are evaluated by priority (highest first), then list order;
+the first rule that passes its gates and conditions wins, and a failing rule falls through to the
+next one. You can override the built-in pack with `config/leaputils/fastleap.json`, capture
+landmarks with `/leaputils landmark <name>`, and test any rule without leaping with
+`/leaputils fastleap test <ruleId>`.
+
+The spec is in [DOCUMENTATION.md](DOCUMENTATION.md#5-fast-leap---click-to-leap-with-rules): rule
+JSON, every setting and its default, worked examples (mage-at-acacia, nearest-to-`necron_spot`,
+yellow-pad-healer), distance intervals and troubleshooting. The bundled `mage-at-acacia` rule is a
+template and stays disabled until you capture the landmark.
+
 ## Build
 
 Open the project in IntelliJ IDEA with JDK 25 and run the Gradle `build`.
