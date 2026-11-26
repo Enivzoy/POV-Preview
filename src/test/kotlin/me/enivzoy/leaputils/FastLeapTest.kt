@@ -15,6 +15,7 @@ import me.enivzoy.leaputils.pov.fastleap.FastLeapResult
 import me.enivzoy.leaputils.pov.fastleap.FastLeapRule
 import me.enivzoy.leaputils.pov.fastleap.FastLeapState
 import me.enivzoy.leaputils.pov.fastleap.FastLeapTriggerSource
+import me.enivzoy.leaputils.pov.fastleap.DEFAULT_RADIUS
 import me.enivzoy.leaputils.pov.fastleap.F7Positions
 import me.enivzoy.leaputils.pov.fastleap.PositionCondition
 import me.enivzoy.leaputils.pov.fastleap.RegionSpec
@@ -22,6 +23,7 @@ import me.enivzoy.leaputils.pov.fastleap.RegionType
 import me.enivzoy.leaputils.pov.fastleap.SpatialEvaluator
 import me.enivzoy.leaputils.pov.fastleap.TargetSelectorType
 import me.enivzoy.leaputils.pov.fastleap.TargetSpec
+import me.enivzoy.leaputils.pov.fastleap.WarningThrottle
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -53,6 +55,15 @@ class FastLeapTest {
         trigger: FastLeapTriggerSource = FastLeapTriggerSource.CLICK,
         landmarks: Map<String, SpLandmark> = emptyMap(),
         doorOpener: String? = null,
+        blacklist: Set<String> = emptySet(),
+        whitelist: Set<String> = emptySet(),
+        skipLastLeaped: Boolean = false,
+        lastLeapedName: String? = null,
+        collectAll: Boolean = false,
+        caseInsensitive: Boolean = true,
+        fallbackLastLeaped: Boolean = false,
+        menuOpen: Boolean = false,
+        skipNotInMenu: Boolean = false,
     ) = FastLeapContext(
         trigger = trigger,
         teammates = teammates,
@@ -65,6 +76,15 @@ class FastLeapTest {
         inBoss = inBoss,
         phase = phase,
         doorOpener = doorOpener,
+        blacklist = blacklist,
+        whitelist = whitelist,
+        skipLastLeaped = skipLastLeaped,
+        lastLeapedName = lastLeapedName,
+        collectAll = collectAll,
+        caseInsensitive = caseInsensitive,
+        fallbackLastLeaped = fallbackLastLeaped,
+        menuOpen = menuOpen,
+        skipNotInMenu = skipNotInMenu,
     )
 
     private fun centre(box: RegionSpec): SpatialEvaluator.Position = SpatialEvaluator.Position(
@@ -683,5 +703,221 @@ class FastLeapTest {
 
         val unknown = FastLeapEvaluator.evaluate(listOf(rule), ctx(inBoss = false, doorOpener = "Unknown"))
         assertIs<FastLeapResult.NoMatch>(unknown)
+    }
+
+    // ---- section 9 filters ----
+
+    @Test
+    fun blacklistNeverTargetsListedName() {
+        val two = listOf(tm("Alice", DungeonClass.HEALER), tm("Bob", DungeonClass.TANK))
+        val rule = FastLeapRule(id = "first", name = "First", target = TargetSpec(TargetSelectorType.FIRST_IN_MENU))
+
+        assertEquals("Alice", FastLeapEvaluator.evaluate(listOf(rule), ctx(teammates = two)).let {
+            (it as FastLeapResult.Plan).teammate.name
+        })
+        val blocked = FastLeapEvaluator.evaluate(listOf(rule), ctx(teammates = two, blacklist = setOf("Alice")))
+        assertEquals("Bob", (blocked as FastLeapResult.Plan).teammate.name)
+        val all = FastLeapEvaluator.evaluate(
+            listOf(rule),
+            ctx(teammates = two, blacklist = setOf("alice", "BOB")),
+        )
+        assertIs<FastLeapResult.NoMatch>(all)
+    }
+
+    @Test
+    fun whitelistLimitsEligibleTargets() {
+        val two = listOf(tm("Alice", DungeonClass.HEALER), tm("Bob", DungeonClass.TANK))
+        val rule = FastLeapRule(id = "first", name = "First", target = TargetSpec(TargetSelectorType.FIRST_IN_MENU))
+
+        val onlyBob = FastLeapEvaluator.evaluate(listOf(rule), ctx(teammates = two, whitelist = setOf("bob")))
+        assertEquals("Bob", (onlyBob as FastLeapResult.Plan).teammate.name)
+
+        val neither = FastLeapEvaluator.evaluate(listOf(rule), ctx(teammates = two, whitelist = setOf("Carol")))
+        assertIs<FastLeapResult.NoMatch>(neither)
+    }
+
+    @Test
+    fun skipLastLeapedAvoidsRepeat() {
+        val two = listOf(tm("Alice", DungeonClass.HEALER), tm("Bob", DungeonClass.TANK))
+        val rule = FastLeapRule(id = "first", name = "First", target = TargetSpec(TargetSelectorType.FIRST_IN_MENU))
+        val skip = FastLeapEvaluator.evaluate(
+            listOf(rule),
+            ctx(teammates = two, skipLastLeaped = true, lastLeapedName = "Alice"),
+        )
+        assertEquals("Bob", (skip as FastLeapResult.Plan).teammate.name)
+
+        // every target already leaped: nothing left, and the default keeps the old behaviour
+        val others = FastLeapEvaluator.evaluate(
+            listOf(rule),
+            ctx(teammates = listOf(tm("Alice", DungeonClass.HEALER)), skipLastLeaped = true, lastLeapedName = "Alice"),
+        )
+        assertIs<FastLeapResult.NoMatch>(others)
+        val allowed = FastLeapEvaluator.evaluate(
+            listOf(rule),
+            ctx(teammates = listOf(tm("Alice", DungeonClass.HEALER)), lastLeapedName = "Alice"),
+        )
+        assertIs<FastLeapResult.Plan>(allowed)
+    }
+
+    @Test
+    fun collectAllPicksLowestDistance() {
+        val planes = mapOf("spot" to SpLandmark(0.0, 0.0, 0.0))
+        val teammates = listOf(
+            tm("Alice", DungeonClass.HEALER, x = 9.0, y = 0.0, z = 0.0),
+            tm("Bob", DungeonClass.TANK, x = 4.0, y = 0.0, z = 0.0),
+        )
+        val byName = { name: String ->
+            FastLeapRule(
+                id = name.lowercase(),
+                name = name,
+                priority = if (name == "Alice") 200 else 100,
+                target = TargetSpec(TargetSelectorType.NAME, targetName = name),
+                conditions = listOf(
+                    PositionCondition(landmarkName = "spot", errorMinDistance = 3.0, errorMaxDistance = 15.0),
+                ),
+            )
+        }
+        val rules = listOf(byName("Alice"), byName("Bob"))
+
+        // first match wins by default, even when the other target is closer
+        val first = FastLeapEvaluator.evaluate(rules, ctx(teammates = teammates, landmarks = planes))
+        assertEquals("Alice", (first as FastLeapResult.Plan).teammate.name)
+
+        val best = FastLeapEvaluator.evaluate(rules, ctx(teammates = teammates, landmarks = planes, collectAll = true))
+        assertEquals("Bob", (best as FastLeapResult.Plan).teammate.name)
+        assertEquals(4.0, best.measuredDistance!!, 0.001)
+    }
+
+    @Test
+    fun caseSensitiveModeStopsNormalizingNames() {
+        val teammate = tm("Alice", DungeonClass.HEALER)
+        val rule = landmarkRule(landmark = "spot").copy(
+            conditions = listOf(PositionCondition(landmarkName = "spot", radius = 2.0)),
+        )
+        val planes = mapOf("spot" to SpLandmark(0.0, 0.0, 0.0))
+        val withPos = listOf(teammate.copy(x = 1.0, y = 0.0, z = 0.0))
+
+        val insensitive = FastLeapEvaluator.evaluate(
+            listOf(rule),
+            ctx(teammates = withPos, landmarks = planes, blacklist = setOf("ALICE")),
+        )
+        assertIs<FastLeapResult.NoMatch>(insensitive)
+
+        val sensitive = FastLeapEvaluator.evaluate(
+            listOf(rule),
+            ctx(teammates = withPos, landmarks = planes, blacklist = setOf("ALICE"), caseInsensitive = false),
+        )
+        assertIs<FastLeapResult.Plan>(sensitive)
+    }
+
+    @Test
+    fun skipNotInMenuOnlyFiltersWhileMenuIsOpen() {
+        val offMenu = tm("Alice", DungeonClass.HEALER, x = 1.0, y = 0.0, z = 0.0).copy(inMenu = false)
+        val rule = landmarkRule(landmark = "spot").copy(
+            conditions = listOf(PositionCondition(landmarkName = "spot", radius = 2.0)),
+        )
+        val planes = mapOf("spot" to SpLandmark(0.0, 0.0, 0.0))
+
+        val preMenu = FastLeapEvaluator.evaluate(
+            listOf(rule),
+            ctx(teammates = listOf(offMenu), landmarks = planes, skipNotInMenu = true),
+        )
+        assertIs<FastLeapResult.Plan>(preMenu)
+
+        val inMenu = FastLeapEvaluator.evaluate(
+            listOf(rule),
+            ctx(teammates = listOf(offMenu), landmarks = planes, skipNotInMenu = true, menuOpen = true),
+        )
+        assertIs<FastLeapResult.NoMatch>(inMenu)
+    }
+
+    @Test
+    fun fallbackLastLeapedRepeatsPreviousTarget() {
+        val two = listOf(tm("Alice", DungeonClass.HEALER), tm("Bob", DungeonClass.TANK))
+        val res = FastLeapEvaluator.evaluate(
+            emptyList(),
+            ctx(teammates = two, lastLeapedName = "Bob", fallbackLastLeaped = true),
+            applyFallback = true,
+        )
+        assertEquals("Bob", (res as FastLeapResult.Plan).teammate.name)
+        assertEquals("fallback", res.rule.id)
+
+        val missing = FastLeapEvaluator.evaluate(
+            emptyList(),
+            ctx(teammates = two, lastLeapedName = "Carol", fallbackLastLeaped = true),
+            applyFallback = true,
+        )
+        assertIs<FastLeapResult.NoMatch>(missing)
+    }
+
+    @Test
+    fun warningThrottleAllowsEachReasonOncePerWindow() {
+        val throttle = WarningThrottle(windowMs = 5_000L)
+        assertTrue(throttle.allow("rule a: no eligible teammate", 1_000L))
+        assertFalse(throttle.allow("rule a: no eligible teammate", 1_100L))
+        // a different reason keeps its own window
+        assertTrue(throttle.allow("rule b: missing landmark acacia", 1_200L))
+        assertFalse(throttle.allow("rule a: no eligible teammate", 5_900L))
+        assertTrue(throttle.allow("rule a: no eligible teammate", 6_100L))
+    }
+
+    // ---- acacia template ----
+
+    @Test
+    fun acaciaTemplateShipsDisabledAndNeedsTheLandmark() {
+        val pack = FastLeapDefaults.pack()
+        val rule = pack.firstOrNull { it.id == "mage-at-acacia" }
+        assertNotNull(rule)
+        assertFalse(rule.enabled)
+        // ships without coordinates, the landmark itself is never created
+        assertFalse(rule.conditions.single().hasCustomPoint)
+        assertEquals("acacia", rule.conditions.single().landmarkName)
+        assertEquals(3.0, rule.conditions.single().errorMinDistance)
+        assertEquals(15.0, rule.conditions.single().errorMaxDistance)
+        assertEquals(TargetSelectorType.CLASS, rule.target.type)
+        assertEquals(DungeonClass.MAGE, rule.target.targetClass)
+
+        val mage = tm("Alice", DungeonClass.MAGE, x = 0.0, y = 0.0, z = 0.0)
+        // shipped defaults never create the landmark
+        val off = FastLeapEvaluator.evaluate(
+            listOf(rule),
+            ctx(teammates = listOf(mage), landmarks = mapOf("acacia" to SpLandmark(0.0, 0.0, 0.0))),
+        )
+        assertIs<FastLeapResult.NoMatch>(off)
+        assertEquals("rule is disabled", off.failures.single().reason)
+
+        val onMissing = FastLeapEvaluator.evaluate(listOf(rule.copy(enabled = true)), ctx(teammates = listOf(mage)))
+        assertIs<FastLeapResult.NoMatch>(onMissing)
+        assertTrue(onMissing.failures.single().reason.contains("acacia"))
+
+        val onCaptured = FastLeapEvaluator.evaluate(
+            listOf(rule.copy(enabled = true)),
+            ctx(teammates = listOf(mage), landmarks = mapOf("acacia" to SpLandmark(6.0, 0.0, 0.0))),
+        )
+        assertEquals("Alice", (onCaptured as FastLeapResult.Plan).teammate.name)
+    }
+
+    @Test
+    fun defaultRadiusIsSixAndRulesCanKeepTheirOwn() {
+        assertEquals(6.0, DEFAULT_RADIUS)
+        assertNull(TargetSpec(TargetSelectorType.FIRST_IN_MENU).radius)
+
+        val planes = mapOf("spot" to SpLandmark(0.0, 0.0, 0.0))
+        val rule = FastLeapRule(
+            id = "near",
+            name = "Near",
+            target = TargetSpec(TargetSelectorType.NEAREST_LANDMARK, landmarkName = "spot"),
+        )
+        val inside = FastLeapEvaluator.evaluate(
+            listOf(rule),
+            ctx(teammates = listOf(tm("Alice", DungeonClass.HEALER, x = 5.5, y = 0.0, z = 0.0)), landmarks = planes),
+        )
+        assertIs<FastLeapResult.Plan>(inside)
+
+        val outside = FastLeapEvaluator.evaluate(
+            listOf(rule),
+            ctx(teammates = listOf(tm("Alice", DungeonClass.HEALER, x = 6.5, y = 0.0, z = 0.0)), landmarks = planes),
+        )
+        assertIs<FastLeapResult.NoMatch>(outside)
     }
 }
