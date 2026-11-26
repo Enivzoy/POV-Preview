@@ -583,6 +583,7 @@ class FastLeapTest {
     fun closeIsOneShotAndStartsAtDispatch() {
         request()
         val dispatchNs = 2_000_000_000L
+        FastLeapState.markDispatched(dispatchNs)
         val token = FastLeapState.scheduleClose(dispatchNs, 1L, "screen")
         assertNotNull(token)
         assertEquals(dispatchNs + 1_000_000L, token.deadlineNs)
@@ -590,6 +591,30 @@ class FastLeapTest {
         assertNotNull(FastLeapState.closeDue(dispatchNs + 1_000_000L))
         assertNull(FastLeapState.scheduleClose(dispatchNs, 1L, "other screen"))
         assertEquals("screen", token.screen)
+    }
+
+    @Test
+    fun closeNeverSchedulesWithoutADispatch() {
+        request()
+        // no teammate click went out, so nothing may close the menu
+        assertNull(FastLeapState.scheduleClose(0L, 1L, "screen"))
+        assertNull(FastLeapState.closeToken)
+        FastLeapState.markDispatched(1_000_000L)
+        assertNotNull(FastLeapState.scheduleClose(1_000_000L, 1L, "screen"))
+    }
+
+    @Test
+    fun staleCloseIsDroppedAfterGenerationChange() {
+        request()
+        FastLeapState.markDispatched(1_000_000L)
+        val gen = FastLeapState.generation
+        val token = FastLeapState.scheduleClose(1_000_000L, 0L, "screen")
+        assertNotNull(token)
+        FastLeapState.bumpGeneration()
+        // both the generation and the token are gone, so a late close cannot fire
+        assertEquals(gen + 1, FastLeapState.generation)
+        assertNull(FastLeapState.closeToken)
+        assertNull(FastLeapState.closeDue(Long.MAX_VALUE))
     }
 
     @Test

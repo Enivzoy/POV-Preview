@@ -158,6 +158,8 @@ object FastLeapState {
     // one-shot close: deadline is dispatch + delay, never a later result
     fun scheduleClose(nowNs: Long, delayMs: Long, screen: Any?): CloseToken? {
         val req = request ?: return null
+        // a close only ever follows a dispatched teammate click
+        if (!dispatched) return null
         if (closeToken != null) return null
         val token = CloseToken(req.id, req.generation, screen, nowNs, nowNs + delayMs * 1_000_000L)
         closeToken = token
