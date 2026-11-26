@@ -107,6 +107,7 @@ object FastLeapState {
         axes: String,
         t0: Long,
         restoreSlot: Int? = null,
+        path: String = "normal",
     ): Request {
         val req = Request(
             id = nextId++,
@@ -122,6 +123,7 @@ object FastLeapState {
             axes = axes,
             timing = Timing(t0),
             restoreSlot = restoreSlot,
+            path = path,
         )
         request = req
         dispatched = false
@@ -233,7 +235,8 @@ object FastLeapState {
             "item=${f(elapsedMs(t.t2, t.t3))} menuOpen=${f(elapsedMs(t.t3, t.t4))} " +
             "menuPopulate=${f(elapsedMs(t.t4, t.t5))} click=${f(elapsedMs(t.t5, t.t6))} " +
             "totalToClick=${f(elapsedMs(t.t0, t.t6))} " +
-            "prefire useItemToClick=${f(elapsedMs(t.l0, t.l1))} menuObserved=${f(elapsedMs(t.l1, t.l2))} " +
-            "dispatchToClose=${f(elapsedMs(t.l1, t.l3))} result=${f(elapsedMs(t.l1, t.l4))}"
+            "latency useItemToClick=${f(elapsedMs(t.l0, t.l1))} menuObserved=${f(elapsedMs(t.l1, t.l2))} " +
+            "dispatchToClose=${f(elapsedMs(t.l1, t.l3))} result=${f(elapsedMs(t.l1, t.l4))} " +
+            "total=${f(elapsedMs(t.l0, t.l4))}"
     }
 }

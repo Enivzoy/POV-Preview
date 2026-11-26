@@ -18,6 +18,7 @@ import me.enivzoy.leaputils.pov.fastleap.FastLeapTriggerSource
 import me.enivzoy.leaputils.pov.fastleap.DEFAULT_RADIUS
 import me.enivzoy.leaputils.pov.fastleap.F7Positions
 import me.enivzoy.leaputils.pov.fastleap.PositionCondition
+import me.enivzoy.leaputils.pov.fastleap.PrefireState
 import me.enivzoy.leaputils.pov.fastleap.RegionSpec
 import me.enivzoy.leaputils.pov.fastleap.RegionType
 import me.enivzoy.leaputils.pov.fastleap.SpatialEvaluator
@@ -710,6 +711,32 @@ class FastLeapTest {
         assertTrue(ms > 0.0)
         // no t7 needed: the summary stops at the dispatch marker
         assertTrue(FastLeapState.summary(req).contains("totalToClick"))
+    }
+
+    @Test
+    fun normalAndPrefireSummariesShareTheSameLatencyKeys() {
+        val req = request()
+        assertEquals("normal", req.path)
+        req.timing.t3 = 1_000_000_000L
+        req.timing.t6 = 1_250_000_000L
+        req.timing.l0 = req.timing.t3
+        req.timing.l1 = req.timing.t6
+        req.timing.l2 = 4_000_000_000L
+        req.timing.l3 = 4_100_000_000L
+        req.timing.l4 = 9_000_000_000L
+        val normal = FastLeapState.summary(req)
+        assertTrue(normal.contains("path=normal"))
+        assertTrue(normal.contains("useItemToClick=250.0"))
+        assertTrue(normal.contains("menuObserved=2750.0"))
+        assertTrue(normal.contains("dispatchToClose=2850.0"))
+        assertTrue(normal.contains("result=7750.0"))
+
+        // the prefire line must expose the same keys so the two can be compared directly
+        val prefire = PrefireState().latency.summary()
+        for (key in listOf("useItemToClick=", "menuObserved=", "dispatchToClose=", "result=")) {
+            assertTrue(normal.contains(key), "normal summary missing $key")
+            assertTrue(prefire.contains(key), "prefire summary missing $key")
+        }
     }
 
     @Test
