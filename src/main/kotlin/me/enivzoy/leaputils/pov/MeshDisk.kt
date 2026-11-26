@@ -7,8 +7,10 @@ import net.minecraft.world.level.block.Blocks
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.RandomAccessFile
+import java.nio.channels.FileChannel
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.StandardOpenOption
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 
@@ -58,20 +60,9 @@ object MeshDisk {
         writer.execute {
             runCatching {
                 Files.createDirectories(dir)
-                if (Files.exists(path)) DataInputStream(Files.newInputStream(path).buffered()).use { inp ->
-                    var at = 0L
-                    while (true) {
-                        val key = runCatching { inp.readUTF() }.getOrNull() ?: break
-                        val count = inp.readInt(); val len = inp.readInt()
-                        val head = 2 + key.toByteArray(Charsets.UTF_8).size + 8
-                        val data = at + head
-                        inp.skipNBytes(len.toLong())
-                        index[key] = Entry(data, count, len)
-                        at = data + len
-                    }
-                }
-                reader = if (Files.exists(path)) RandomAccessFile(path.toFile(), "r") else null
+                if (Files.exists(path)) MeshIndex.loadEntries(path, index)
             }
+            reader = runCatching { if (Files.exists(path)) RandomAccessFile(path.toFile(), "r") else null }.getOrNull()
 
             runCatching { Files.list(dir).use { s -> s.filter { it.fileName.toString().endsWith(".bin") && it != path }.forEach { Files.deleteIfExists(it) } } }
             ready = true
@@ -95,12 +86,12 @@ object MeshDisk {
         writer.execute {
             val path = file ?: return@execute
             val r = reader ?: return@execute
+            val tmp = path.resolveSibling(path.fileName.toString() + ".tmp")
             runCatching {
                 fun head(k: String) = 2L + k.toByteArray(Charsets.UTF_8).size + 8
                 val total = Files.size(path)
                 val keep = index.entries.filter { !it.key.startsWith("b/") || it.key.startsWith(live) }.map { it.key to it.value }
                 if (keep.sumOf { (k, e) -> head(k) + e.length } > total * 3 / 4) return@execute
-                val tmp = path.resolveSibling(path.fileName.toString() + ".tmp")
                 val fresh = HashMap<String, Entry>()
                 DataOutputStream(Files.newOutputStream(tmp).buffered()).use { out ->
                     var at = 0L
@@ -119,8 +110,9 @@ object MeshDisk {
                     reader = RandomAccessFile(path.toFile(), "r")
                 }
             }.onFailure {
-
                 me.enivzoy.leaputils.LeapUtils.logger.warn("[pose pov] mesh cache compaction failed", it)
+                runCatching { synchronized(r) { r.close() } }
+                runCatching { Files.deleteIfExists(tmp) }
                 reader = runCatching { RandomAccessFile(path.toFile(), "r") }.getOrNull()
             }
         }
@@ -140,5 +132,31 @@ object MeshDisk {
                 index[key] = Entry(start + head, count, bytes.size)
             }
         }
+    }
+}
+
+// keeps the cache loadable after a crash: whole entries are indexed, a torn last one is cut off
+internal object MeshIndex {
+
+    fun loadEntries(path: Path, into: MutableMap<String, MeshDisk.Entry>): Long {
+        if (!Files.exists(path)) return 0L
+        val size = Files.size(path)
+        var at = 0L
+        runCatching {
+            DataInputStream(Files.newInputStream(path).buffered()).use { inp ->
+                while (at < size) {
+                    val key = inp.readUTF()
+                    val count = inp.readInt(); val len = inp.readInt()
+                    val head = 2 + key.toByteArray(Charsets.UTF_8).size + 8
+                    val data = at + head
+                    if (len < 0 || data + len > size) break
+                    inp.skipNBytes(len.toLong())
+                    into[key] = MeshDisk.Entry(data, count, len)
+                    at = data + len
+                }
+            }
+        }
+        if (at < size) FileChannel.open(path, StandardOpenOption.WRITE).use { it.truncate(at) }
+        return at
     }
 }

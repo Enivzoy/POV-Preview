@@ -16,6 +16,8 @@ import net.minecraft.world.level.block.Block
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.StandardCopyOption
 import java.util.IdentityHashMap
 import java.util.concurrent.CompletableFuture
 
@@ -31,7 +33,8 @@ object RoomEdges {
     @Volatile private var hashes: IntArray? = null
     @Volatile private var places: IntArray? = null
     private var designs: List<RoomDesign> = emptyList()
-    private var indexing = false
+    @Volatile private var indexing = false
+    @Volatile private var indexRetryAt = 0L
     private val dirty = BooleanArray(36) { true }
     private var stepAt = 0L
     private var next = 0
@@ -130,28 +133,51 @@ object RoomEdges {
     }
 
     private fun index(pack: RoomPack) {
-        if (indexing) return
+        if (indexing || System.currentTimeMillis() < indexRetryAt) return
         indexing = true
         val ds = pack.designs
         val file = FabricLoader.getInstance().configDir.resolve("leaputils").resolve("pov-cache").resolve("edges-$FORMAT-${pack.version}-${ds.size}.idx")
         CompletableFuture.runAsync {
             runCatching {
-                if (Files.exists(file)) DataInputStream(Files.newInputStream(file).buffered()).use { inp ->
-                    val n = inp.readInt()
-                    val h = IntArray(n); val p = IntArray(n)
-                    for (i in 0 until n) { h[i] = inp.readInt(); p[i] = inp.readInt() }
-                    designs = ds; places = p; hashes = h
-                    return@runAsync
-                }
-                val (h, p) = build(pack, ds)
-                Files.createDirectories(file.parent)
-                DataOutputStream(Files.newOutputStream(file).buffered()).use { out ->
-                    out.writeInt(h.size)
-                    for (k in h.indices) { out.writeInt(h[k]); out.writeInt(p[k]) }
-                }
+                val (h, p) = readOrRebuild(file) { build(pack, ds) } ?: return@runCatching
                 designs = ds; places = p; hashes = h
+            }.onFailure {
+                indexRetryAt = System.currentTimeMillis() + 60_000L
+                indexing = false
             }
         }
+    }
+
+    // a cached index that is corrupt is deleted and rebuilt; a valid one is read as is
+    internal fun readOrRebuild(file: Path, build: () -> Pair<IntArray, IntArray>): Pair<IntArray, IntArray>? {
+        val read = runCatching { readIndex(file) }.getOrElse { runCatching { Files.deleteIfExists(file) }; null }
+        if (read != null) return read
+        return runCatching {
+            val (h, p) = build()
+            runCatching { writeIndex(file, h, p) }
+            h to p
+        }.getOrNull()
+    }
+
+    internal fun readIndex(file: Path): Pair<IntArray, IntArray>? {
+        if (!Files.exists(file)) return null
+        return DataInputStream(Files.newInputStream(file).buffered()).use { inp ->
+            val n = inp.readInt()
+            require(n >= 0 && n <= (Files.size(file) - 4) / 8) { "edge index cut short" }
+            val h = IntArray(n); val p = IntArray(n)
+            for (i in 0 until n) { h[i] = inp.readInt(); p[i] = inp.readInt() }
+            h to p
+        }
+    }
+
+    internal fun writeIndex(file: Path, h: IntArray, p: IntArray) {
+        Files.createDirectories(file.parent)
+        val tmp = file.resolveSibling(file.fileName.toString() + ".tmp")
+        DataOutputStream(Files.newOutputStream(tmp).buffered()).use { out ->
+            out.writeInt(h.size)
+            for (k in h.indices) { out.writeInt(h[k]); out.writeInt(p[k]) }
+        }
+        Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
     }
 
     internal fun build(pack: RoomPack, ds: List<RoomDesign>): Pair<IntArray, IntArray> {

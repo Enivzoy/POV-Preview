@@ -71,17 +71,35 @@ data class SpCond(
     val onFail: SpOnFail = SpOnFail.WAIT,
     val objective: SpObjective? = null,
     val objectiveMin: Int = 0,
+    val errorMinDistance: Double? = null,
+    val errorMaxDistance: Double? = null,
 ) {
     val effectiveRadius: Double get() = if (radius > 0.0) radius else mode.defaultRadius
     val hasRawPos: Boolean get() = x != null && y != null && z != null
 
+    // null on both fields means a legacy cond: keep the old radius behaviour
+    val hasErrorInterval: Boolean get() = errorMinDistance != null || errorMaxDistance != null
+
+    fun distanceOk(dist: Double, defaultMin: Double, defaultMax: Double): Boolean =
+        if (hasErrorInterval) dist >= (errorMinDistance ?: defaultMin) && dist <= (errorMaxDistance ?: defaultMax)
+        else dist <= effectiveRadius
+
+    fun intervalLabel(defaultMin: Double, defaultMax: Double): String =
+        "${errorMinDistance ?: defaultMin}..${errorMaxDistance ?: defaultMax}m"
+
     fun describe(): String {
         val parts = ArrayList<String>(2)
         objective?.let { parts += "${it.label}>=${objectiveMin}" }
-        if (hasRawPos) parts += "${subject.label} at ($x,$y,$z) <=${effectiveRadius.toInt()}m"
-        else if (landmark.isNotBlank()) parts += "${subject.label} ${mode.label} '$landmark' <=${effectiveRadius.toInt()}m"
+        val range = if (hasErrorInterval) intervalLabel(DEFAULT_ERROR_MIN, DEFAULT_ERROR_MAX) else "<=${effectiveRadius.toInt()}m"
+        if (hasRawPos) parts += "${subject.label} at ($x,$y,$z) $range"
+        else if (landmark.isNotBlank()) parts += "${subject.label} ${mode.label} '$landmark' $range"
         if (parts.isEmpty()) return "wait ${holdMs}ms"
         return parts.joinToString(" and ")
+    }
+
+    companion object {
+        const val DEFAULT_ERROR_MIN = 3.0
+        const val DEFAULT_ERROR_MAX = 15.0
     }
 }
 
@@ -176,7 +194,12 @@ object SavepointEngine {
         else -> emptyList()
     }
 
-    fun decide(ctx: SpCtx, rules: Map<SpCell, SpRule>): SpPlan {
+    fun decide(
+        ctx: SpCtx,
+        rules: Map<SpCell, SpRule>,
+        defaultErrorMin: Double = SpCond.DEFAULT_ERROR_MIN,
+        defaultErrorMax: Double = SpCond.DEFAULT_ERROR_MAX,
+    ): SpPlan {
         val myClass = ctx.myClass ?: return SpPlan.Wait(null, "your class is unknown")
 
         for (sstep in ctx.steps) {
@@ -229,8 +252,10 @@ object SavepointEngine {
                 val dy = py - lm.y
                 val dz = pz - lm.z
                 val dist = sqrt(dx * dx + dy * dy + dz * dz)
-                if (dist > cond.effectiveRadius) {
-                    return fail(cond, sstep, "${target.clazz.name.lowercase()} ${target.name} not within ${cond.effectiveRadius.toInt()}m of ${cond.describe()}", ctx, target, label)
+                if (!cond.distanceOk(dist, defaultErrorMin, defaultErrorMax)) {
+                    val limit = if (cond.hasErrorInterval) cond.intervalLabel(defaultErrorMin, defaultErrorMax)
+                    else "<=${cond.effectiveRadius.toInt()}m"
+                    return fail(cond, sstep, "${target.clazz.name.lowercase()} ${target.name} at ${"%.1f".format(dist)}m is outside $limit of ${cond.describe()}", ctx, target, label)
                 }
             }
 
@@ -301,7 +326,6 @@ object SavepointEngine {
                     SpTgt.MAGE -> DungeonClass.MAGE
                     SpTgt.TANK -> DungeonClass.TANK
                     SpTgt.HEALER -> DungeonClass.HEALER
-                    else -> return Resolved.Missing("no target")
                 }
                 val cands = ctx.teammates.filter { it.clazz == cls && !it.dead && it.inMenu }
                 when {

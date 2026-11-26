@@ -122,20 +122,25 @@ class TurnLink(
         open()
     }
 
+    private var opens = 0
+
     @Synchronized
     private fun open() {
         state = State.ALLOCATING; problem = null
         realm = null; nonce = null; authKey = null; authTried = false; mapped = null
         relayed = null; txs.clear()
         for (p in peers.values) p.bound = false
+        val gen = ++opens
+        // only this open's own failures count: a stop() or a newer open() makes them moot
+        fun failIfCurrent(why: String) = synchronized(this) { if (state == State.ALLOCATING && socket == null && gen == opens) fail(why) }
         Thread.ofPlatform().name("leaputils-pov-turn").daemon(true).start {
 
             val addr = runCatching { InetAddress.getAllByName(host).let { a -> a.firstOrNull { it is Inet4Address } ?: a.first() } }.getOrNull()
-            if (addr == null) { fail("couldn't look up $host"); return@start }
+            if (addr == null) { failIfCurrent("couldn't look up $host"); return@start }
             val s = runCatching { DatagramSocket().also { it.connect(InetSocketAddress(addr, port)) } }.getOrNull()
-            if (s == null) { fail("couldn't open a UDP socket"); return@start }
+            if (s == null) { failIfCurrent("couldn't open a UDP socket"); return@start }
             synchronized(this) {
-                if (state != State.ALLOCATING || socket != null) { s.close(); return@start }
+                if (state != State.ALLOCATING || socket != null || gen != opens) { s.close(); return@start }
                 socket = s
                 request(ALLOCATE)
             }
@@ -281,7 +286,11 @@ class TurnLink(
         val buf = ByteArray(1500)
         while (socket === s) {
             val pk = DatagramPacket(buf, buf.size)
-            try { s.receive(pk) } catch (_: Exception) { break }
+            // an icmp error back from the server means this reader is gone, so let the allocation retry
+            try { s.receive(pk) } catch (e: Exception) {
+                synchronized(this) { if (socket === s) fail("read failed: ${e.message}") }
+                break
+            }
             try { packet(pk.data, pk.length) } catch (e: Exception) { log("TURN: ${e.message}") }
         }
     }
