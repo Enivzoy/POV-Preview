@@ -12,11 +12,15 @@ import com.odtheking.odin.events.ScreenEvent
 import com.odtheking.odin.events.core.on
 import com.odtheking.odin.features.Category
 import com.odtheking.odin.features.Module
+import com.odtheking.odin.utils.Colors
 import com.odtheking.odin.utils.itemId
 import com.odtheking.odin.utils.modMessage
+import com.odtheking.odin.utils.render.text
+import com.odtheking.odin.utils.render.textDim
 import com.odtheking.odin.utils.skyblock.dungeon.DungeonClass
 import com.odtheking.odin.utils.skyblock.dungeon.DungeonPlayer
 import com.odtheking.odin.utils.skyblock.dungeon.DungeonUtils
+import com.odtheking.odin.utils.skyblock.dungeon.Floor
 import com.odtheking.odin.utils.skyblock.dungeon.M7Phases
 import me.enivzoy.leaputils.pov.fastleap.FastLeapContext
 import me.enivzoy.leaputils.pov.fastleap.FastLeapDefaults
@@ -29,6 +33,7 @@ import me.enivzoy.leaputils.pov.fastleap.PositionCondition
 import me.enivzoy.leaputils.pov.fastleap.RegionSpec
 import me.enivzoy.leaputils.pov.fastleap.TargetSelectorType
 import me.enivzoy.leaputils.pov.fastleap.TargetSpec
+import me.enivzoy.leaputils.pov.fastleap.WarningThrottle
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents
 import net.fabricmc.loader.api.FabricLoader
 import net.minecraft.client.Minecraft
@@ -47,17 +52,20 @@ object FastLeap : Module(
     description = "Leap on a left click with ordered, position aware rules"
 ) {
     enum class LeapMode { CLASS, NAME }
-    enum class FallbackMode { NOTHING, NEAREST_TO }
+    enum class FallbackMode { NOTHING, NEAREST_TO, LAST_LEAPED }
     enum class FeedbackMode { ERRORS, VERBOSE, OFF }
     enum class LocationFilter { BOSS, CLEAR, BOTH }
+    enum class FloorFilter { F7, M7, BOTH }
 
     private var rules: List<FastLeapRule> = FastLeapDefaults.pack()
     private var disabledIds = mutableSetOf<String>()
     private var firedThisScreen: Screen? = null
-    private var lastWarnKey = ""
-    private var lastWarnAt = 0L
+    private val warningThrottle = WarningThrottle()
     private var tickCounter = 0L
     private var levelIdentity: Any? = null
+    private var lastLeapedName: String? = null
+    private var hudLine = ""
+    private var lastSoloWarnAt = 0L
     private var menuOpenedMs = 0L
     private val cooldownUntil = HashMap<String, Long>()
     private var dispatchTimes = ArrayDeque<Long>()
@@ -67,6 +75,7 @@ object FastLeap : Module(
     }
 
     val fastLeapEnabled by BooleanSetting("Enabled", true, desc = "Master switch for Fast Leap")
+    val floorFilter by SelectorSetting("Floors", FloorFilter.BOTH, desc = "Run on F7, M7 or both", listOf(FloorFilter.F7, FloorFilter.M7, FloorFilter.BOTH))
     val leapMode by SelectorSetting("Leap mode", LeapMode.CLASS, desc = "Pick the target by class or by name", listOf(LeapMode.CLASS, LeapMode.NAME))
     val ignorePhaseGates by BooleanSetting("Ignore phase gates", false, desc = "Evaluate every rule regardless of its phase or section gate")
     val locationFilter by SelectorSetting("Locations", LocationFilter.BOTH, desc = "Run in the boss fight, in clear, or both", listOf(LocationFilter.BOSS, LocationFilter.CLEAR, LocationFilter.BOTH))
@@ -75,10 +84,26 @@ object FastLeap : Module(
     val swapBack by BooleanSetting("Swap back", false, desc = "Return to the previous hotbar slot after the leap click is dispatched")
     val doorOpenerLeap by BooleanSetting("Door opener leap", false, desc = "Outside the boss, run the door opener rule when the opener is known")
     val disableAfterBloodOpen by BooleanSetting("Disable after Blood open", true, desc = "Stop door opener leaps once Blood is open")
-    val fallbackMode by SelectorSetting("Fallback", FallbackMode.NOTHING, desc = "What to do when no rule matched", listOf(FallbackMode.NOTHING, FallbackMode.NEAREST_TO))
+    val fallbackMode by SelectorSetting("Fallback", FallbackMode.NOTHING, desc = "What to do when no rule matched", listOf(FallbackMode.NOTHING, FallbackMode.NEAREST_TO, FallbackMode.LAST_LEAPED))
     val fallbackLandmark by StringSetting("Fallback landmark", "", 32, "landmark", "Nearest to landmark, used by the Fallback setting")
 
+    // guards, every default keeps the pre-setting behaviour
+    val pauseOnGui by BooleanSetting("Pause when GUI open", true, desc = "Never leap while an unrelated screen is open")
+    val pauseOnDead by BooleanSetting("Pause when dead", true, desc = "Never evaluate while you are dead or dying")
+    val pauseOnSolo by BooleanSetting("Pause when solo", true, desc = "No leap with fewer than two party teammates, one throttled message")
+    val ignoreSelf by BooleanSetting("Ignore self", true, desc = "Never offer yourself as a leap target")
+    val caseInsensitive by BooleanSetting("Case-insensitive names", true, desc = "Match teammate, menu and rule names without case")
+    val skipDead by BooleanSetting("Skip dead", true, desc = "Never offer a dead teammate as a target")
+    val skipNotInMenu by BooleanSetting("Skip not in menu", true, desc = "Only dispatch to a teammate Odin can see in the open leap menu")
+    val skipLastLeaped by BooleanSetting("Skip last leaped", false, desc = "Do not leap to the same teammate twice in a row")
+    val blacklist by StringSetting("Blacklist", "", 200, "name, name", "Comma-separated names that are never leap targets")
+    val whitelist by StringSetting("Whitelist", "", 200, "name, name", "When not empty only these names are leap targets")
+    val collectAll by BooleanSetting("Collect all and pick best", false, desc = "Evaluate every matching rule and take the lowest measured distance")
+    val defaultRadius by NumberSetting("Default radius", 6.0, 1.0..64.0, 0.5, desc = "Radius for rules without their own radius or mode")
+    val defaultHorizontal by BooleanSetting("Horizontal only", false, desc = "Default distance check to XZ only; per-condition overrides still win")
+
     val clickTrigger by BooleanSetting("Left click", true, desc = "Leap when left clicking while holding a spirit leap item")
+    val onlyHoldingLeap by BooleanSetting("Only while holding leap", true, desc = "The click trigger only fires with a spirit leap item in hand")
     val requireSneaking by BooleanSetting("Require sneak", false, desc = "Only trigger while you are sneaking")
     val cancelOnNoMatch by BooleanSetting("Cancel on no-match", false, desc = "Swallow the click even when no rule matched")
     val debounceMs by NumberSetting("Trigger debounce ms", 250, 0..2000, 10, desc = "Duplicate trigger guard; it never delays the first accepted request")
@@ -88,6 +113,15 @@ object FastLeap : Module(
 
     val closeAfterDispatch by BooleanSetting("Close GUI After Teammate Click Dispatch", true, desc = "Close the menu as soon as the teammate click is dispatched, never waiting for the leap to land")
     val closeDelayMs by NumberSetting("GUI Close Delay", 1, 0..100, 1, desc = "Delay from the teammate click dispatch to the local close, in milliseconds")
+
+    val targetHud by HUD("Fast Leap Target", desc = "Last matched Fast Leap target", x = 491, y = 493, scale = 1f) { example ->
+        val line = if (example) "\u00a77Leap: \u00a7fHealer \u00a77(rule p1)" else hudLine
+        if (line.isEmpty()) return@HUD 0 to 0
+        val width = textDim(line, 0, 0, Colors.WHITE).first
+        text(line, 0, 0, Colors.WHITE)
+        width to 9
+    }
+    val soundFeedback by BooleanSetting("Sound", false, desc = "Play a short click when the teammate click is dispatched")
 
     val geckoKeybind by KeybindSetting("Keybind", -1, desc = "Run the same evaluation from a key").onPress { attempt(FastLeapTriggerSource.KEYBIND) }
     val goNow by ActionSetting("Leap now", "Evaluate the rule list once and leap if something matches") { attempt(FastLeapTriggerSource.COMMAND) }
@@ -102,6 +136,7 @@ object FastLeap : Module(
     private val dir: Path = FabricLoader.getInstance().configDir.resolve("leaputils")
 
     init {
+        targetHud.enabled = false
         on<ScreenEvent.Open> { onScreenOpen(screen) }
         ClientTickEvents.END_CLIENT_TICK.register { onTick() }
     }
@@ -116,6 +151,9 @@ object FastLeap : Module(
         firedThisScreen = null
         cooldownUntil.clear()
         dispatchTimes = ArrayDeque()
+        warningThrottle.clear()
+        lastLeapedName = null
+        hudLine = ""
         super.onDisable()
     }
 
@@ -172,7 +210,7 @@ object FastLeap : Module(
     // true when the click was consumed by fastleap
     fun onLeftClick(skyblockId: String?): Boolean {
         if (!enabled || !fastLeapEnabled || !clickTrigger) return false
-        if (skyblockId == null || skyblockId !in FastLeapDefaults.leapItemIds) return false
+        if (onlyHoldingLeap && (skyblockId == null || skyblockId !in FastLeapDefaults.leapItemIds)) return false
         if (requireSneaking && mc.player?.isShiftKeyDown != true) return false
         return when (attempt(FastLeapTriggerSource.CLICK)) {
             Attempt.Matched -> true
@@ -265,7 +303,7 @@ object FastLeap : Module(
 
         val ctx = buildContext(source) ?: return Attempt.Blocked
         val t1 = System.nanoTime()
-        val applyFallback = fallbackMode == FallbackMode.NEAREST_TO && onlyRuleId == null
+        val applyFallback = fallbackMode != FallbackMode.NOTHING && onlyRuleId == null
         val res = FastLeapEvaluator.evaluate(enabledRules(), ctx, onlyRuleId, applyFallback)
         val t2 = System.nanoTime()
         return when (res) {
@@ -379,6 +417,7 @@ object FastLeap : Module(
         }
         if (FastLeapState.isDispatched()) return false
         if (!FastLeapState.canExecute(dp.name, req.generation, true)) return false
+        // the menu is only source of truth once it is open, not-in-menu is the evaluator's gate
         if (!OdinAccess.isLeapAvailable(dp, screen)) return false
         if (!withinLeapBudget(System.currentTimeMillis())) {
             report("max leaps per second reached")
@@ -397,8 +436,11 @@ object FastLeap : Module(
         FastLeapState.markDispatched(dispatchedNs)
         dispatchTimes.addLast(System.currentTimeMillis())
         markCooldown(req.itemId)
+        lastLeapedName = req.targetName
         if (swapBack) req.restoreSlot?.let { slot -> restoreHotbarSlot(slot) }
         if (profiling) SpLog.info("fastleap", "dispatch request=${req.id} target=${req.targetName}")
+        if (soundFeedback) playClick()
+        updateHud(req)
         if (closeAfterDispatch) {
             FastLeapState.scheduleClose(dispatchedNs, closeDelayMs.toLong(), screen)
             scheduleClose(screen, req.generation)
@@ -463,6 +505,26 @@ object FastLeap : Module(
         SpLog.info("fastleap", FastLeapState.summary(req))
     }
 
+    private fun updateHud(req: FastLeapState.Request) {
+        hudLine = "\u00a77Leap: \u00a7f${req.targetName} \u00a77(rule ${req.ruleId})"
+    }
+
+    private fun playClick() {
+        runCatching {
+            val level = mc.level ?: return
+            level.playLocalSound(
+                mc.player?.x ?: 0.0,
+                mc.player?.y ?: 0.0,
+                mc.player?.z ?: 0.0,
+                net.minecraft.sounds.SoundEvents.UI_BUTTON_CLICK.value(),
+                net.minecraft.sounds.SoundSource.PLAYERS,
+                0.5f,
+                1.6f,
+                false,
+            )
+        }
+    }
+
     private fun finish(req: FastLeapState.Request, reason: String) {
         req.timing.failure = reason
         if (profiling) SpLog.info("fastleap", FastLeapState.summary(req))
@@ -510,24 +572,30 @@ object FastLeap : Module(
 
     private fun buildContext(source: FastLeapTriggerSource): FastLeapContext? {
         val player = mc.player ?: return null
-        if (player.isDeadOrDying) return null
+        if (pauseOnDead && player.isDeadOrDying) return null
         if (!runCatching { DungeonUtils.inDungeons }.getOrDefault(false)) return null
         val inBoss = runCatching { DungeonUtils.inBoss }.getOrDefault(false)
         if (locationFilter == LocationFilter.BOSS && !inBoss) return null
         if (locationFilter == LocationFilter.CLEAR && inBoss) return null
-        if (!runCatching { DungeonUtils.isFloor(7) }.getOrDefault(false)) return null
+        if (!floorOk()) return null
 
         Landmarks.load()
         val screen = runCatching { mc.gui.screen() }.getOrNull() as? AbstractContainerScreen<*>
         val leapScreen = screen?.takeIf { isLeapScreen(it) }
+        if (pauseOnGui && screen != null && leapScreen == null) return null
         val myName = runCatching { DungeonUtils.currentDungeonPlayer.name }.getOrNull()
-        val teammates = runCatching { DungeonUtils.leapTeammates }.getOrDefault(emptyList())
+        val roster = runCatching { DungeonUtils.leapTeammates }.getOrDefault(emptyList())
+        val teammates = roster
             .filter { myName == null || FastLeapEvaluator.nameKey(it.name) != FastLeapEvaluator.nameKey(myName) }
             .map { dp ->
                 val e = runCatching { OdinAccess.entityOf(dp) }.getOrNull()
                 val inMenu = leapScreen != null && OdinAccess.isLeapAvailable(dp, leapScreen)
                 SpTmate(dp.name, dp.clazz, dp.isDead, inMenu, e?.x, e?.y, e?.z)
             }
+        if (pauseOnSolo && teammates.size < 2) {
+            warnSolo(teammates.size)
+            return null
+        }
         val myClass = runCatching { DungeonUtils.currentDungeonPlayer.clazz }.getOrNull()
             ?.takeIf { it != DungeonClass.EMPTY }
         val chatPhase = runCatching {
@@ -559,7 +627,39 @@ object FastLeap : Module(
             fallbackNearestLandmark = if (fallbackMode == FallbackMode.NEAREST_TO) fallbackLandmark else null,
             defaultErrorMin = Savepoint.errorMinDistance,
             defaultErrorMax = Savepoint.errorMaxDistance,
+            defaultRadius = defaultRadius,
+            defaultHorizontal = defaultHorizontal,
+            ignoreSelf = ignoreSelf,
+            caseInsensitive = caseInsensitive,
+            skipDead = skipDead,
+            skipNotInMenu = skipNotInMenu,
+            blacklist = parseNames(blacklist),
+            whitelist = parseNames(whitelist),
+            skipLastLeaped = skipLastLeaped,
+            lastLeapedName = lastLeapedName,
+            collectAll = collectAll,
+            fallbackLastLeaped = fallbackMode == FallbackMode.LAST_LEAPED,
+            menuOpen = leapScreen != null,
         )
+    }
+
+    private fun floorOk(): Boolean = runCatching {
+        when (floorFilter) {
+            FloorFilter.F7 -> DungeonUtils.floor == Floor.F7
+            FloorFilter.M7 -> DungeonUtils.floor == Floor.M7
+            FloorFilter.BOTH -> DungeonUtils.isFloor(7)
+        }
+    }.getOrDefault(false)
+
+    private fun parseNames(raw: String): Set<String> =
+        raw.split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+
+    // one message per solo stretch, not one per click
+    private fun warnSolo(count: Int) {
+        val now = System.currentTimeMillis()
+        if (now - lastSoloWarnAt < SOLO_WARN_MS) return
+        lastSoloWarnAt = now
+        report("paused: solo or only $count teammate")
     }
 
     private fun reportNoMatch(res: FastLeapResult.NoMatch) {
@@ -570,10 +670,7 @@ object FastLeap : Module(
 
     private fun report(msg: String) {
         if (feedback == FeedbackMode.OFF) return
-        val now = System.currentTimeMillis()
-        if (msg == lastWarnKey && now - lastWarnAt < WARN_THROTTLE_MS) return
-        lastWarnKey = msg
-        lastWarnAt = now
+        if (!warningThrottle.allow(msg, System.currentTimeMillis())) return
         modMessage("[FastLeap] $msg")
     }
 
@@ -586,7 +683,7 @@ object FastLeap : Module(
 
     fun regions(): List<Pair<String, RegionSpec>> = FastLeapDefaults.regions
 
-    private const val WARN_THROTTLE_MS = 5_000L
+    private const val SOLO_WARN_MS = 5_000L
 
     private class FastLeapConfig(
         val disabled: List<String>? = null,
@@ -638,7 +735,7 @@ object FastLeap : Module(
                     targetClass = targetClass?.let { runCatching { DungeonClass.valueOf(it.uppercase()) }.getOrNull() },
                     targetName = targetName,
                     landmarkName = landmark,
-                    radius = radius ?: 8.0,
+                    radius = radius,
                 ),
                 selfRegion = selfRegion?.let { resolveRegion(it) },
                 excludeRegions = excludeRegions?.mapNotNull { resolveRegion(it) } ?: emptyList(),
@@ -670,7 +767,7 @@ object FastLeap : Module(
             customX = x,
             customY = y,
             customZ = z,
-            horizontal = horizontal ?: false,
+            horizontal = horizontal,
             errorMinDistance = errorMinDistance,
             errorMaxDistance = errorMaxDistance,
             mode = mode?.let { runCatching { SpMode.valueOf(it.uppercase()) }.getOrNull() },
