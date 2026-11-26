@@ -634,6 +634,8 @@ object FastLeap : Module(
         val plan = res as? FastLeapResult.Plan ?: return
         val uuid = runCatching { OdinAccess.entityOf(resolveTarget(plan.teammate.name) ?: return)?.uuid?.toString() }.getOrNull()
         val slot = uuid?.let { leapOrderCache.slotFor(it) }
+        // the slot gate cannot be weakened by a setting: an unvalidated order never predicts
+        val orderingVerified = leapOrderCache.validated() && (requireVerifiedSlotOrder || slot != null)
         // no verified state id exists client side, so prepare always aborts here
         val prepared = st.prepare(
             generation = FastLeapState.generation,
@@ -641,7 +643,7 @@ object FastLeap : Module(
             containerId = containerCounter.predict(),
             stateId = null,
             slot = slot,
-            orderingVerified = requireVerifiedSlotOrder && leapOrderCache.validated(),
+            orderingVerified = orderingVerified,
             nowTick = tickCounter,
         )
         if (prefireDiagnostics || profiling) {

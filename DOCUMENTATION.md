@@ -326,9 +326,10 @@ Diagnostics are bounded: one observation per menu, not one per tick. Contents th
 after the screen are retried quietly until the heads are present.
 
 `Profile timings` writes both paths in the same shape, so a normal attempt and a prefire attempt
-can be compared in `savepoint.log`: `path=`, `useItemToClick`, `menuObserved`, `dispatchToClose`,
-`result` and `total`, all measured with `System.nanoTime()`. A prefire attempt is never marked
-successful from a local send; only an observed result counts.
+can be compared in `savepoint.log`: `path=`, `useItemToClick`, `menuResponse`, `clickLead`,
+`dispatchToClose`, `result` and `total`, all measured with `System.nanoTime()`. A negative
+`clickLead` means the real menu arrived before the speculative click would have been sent. A
+prefire attempt is never marked successful from a local send; only an observed result counts.
 
 Hidden-GUI rendering (`Hide Spirit Leap GUI Rendering`) is **not implemented**: suppressing the
 draw event is explicitly out of scope, so the menu stays visible. The first-leap-cold /
