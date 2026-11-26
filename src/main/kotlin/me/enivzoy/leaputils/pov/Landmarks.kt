@@ -57,6 +57,21 @@ object Landmarks {
         return true
     }
 
+    // bulk import: one write no matter how many points arrive
+    fun putAll(points: Map<String, SpLandmark>) {
+        var added = 0
+        for ((name, lm) in points) {
+            val n = name.trim()
+            if (n.isEmpty()) continue
+            all[n] = lm
+            added++
+        }
+        if (added > 0) {
+            SpLog.info("landmark", "imported $added landmarks")
+            save()
+        }
+    }
+
     fun captureHere(name: String): String? {
         val p = Minecraft.getInstance().player ?: return "you are not in a world yet"
         val n = name.trim()
@@ -189,6 +204,61 @@ object LeapUtilsCommands {
                                         Savepoint.overrideCondition = condition
                                         Savepoint.overrideConditionStep = 1
                                         modMessage("[LeapUtils] trigger set: $condition")
+                                        Command.SINGLE_SUCCESS
+                                    }
+                            )
+                    )
+                    .then(
+                        ClientCommands.literal("fastleap")
+                            .then(
+                                ClientCommands.literal("list")
+                                    .executes {
+                                        FastLeap.printRules()
+                                        Command.SINGLE_SUCCESS
+                                    }
+                            )
+                            .then(
+                                ClientCommands.literal("toggle")
+                                    .then(
+                                        ClientCommands.argument("rule", StringArgumentType.word())
+                                            .executes { ctx ->
+                                                val id = StringArgumentType.getString(ctx, "rule")
+                                                val err = FastLeap.toggleRule(id)
+                                                if (err == null) modMessage("[FastLeap] toggled $id")
+                                                else modMessage("[FastLeap] $err")
+                                                Command.SINGLE_SUCCESS
+                                            }
+                                    )
+                            )
+                            .then(
+                                ClientCommands.literal("go")
+                                    .executes {
+                                        FastLeap.goNowValue()
+                                        Command.SINGLE_SUCCESS
+                                    }
+                                    .then(
+                                        ClientCommands.argument("rule", StringArgumentType.word())
+                                            .executes { ctx ->
+                                                FastLeap.goRule(StringArgumentType.getString(ctx, "rule"))
+                                                Command.SINGLE_SUCCESS
+                                            }
+                                    )
+                            )
+                            .then(
+                                ClientCommands.literal("test")
+                                    .then(
+                                        ClientCommands.argument("rule", StringArgumentType.word())
+                                            .executes { ctx ->
+                                                FastLeap.testRule(StringArgumentType.getString(ctx, "rule"))
+                                                Command.SINGLE_SUCCESS
+                                            }
+                                    )
+                            )
+                            .then(
+                                ClientCommands.literal("reload")
+                                    .executes {
+                                        FastLeap.reload()
+                                        modMessage("[LeapUtils] FastLeap rules reloaded")
                                         Command.SINGLE_SUCCESS
                                     }
                             )

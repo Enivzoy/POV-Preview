@@ -115,6 +115,8 @@ object Savepoint : Module(
     var plannerDepth by BooleanSetting("Planner depth mode", false, desc = "Planner chips show full names (Berserk > Nearest) instead of abbreviations (B > n)").hide()
 
     val soloCrush by BooleanSetting("SoloCrush", true, desc = "Skip the Purple Spotter (mage) leap after predev and leap straight to the berserk waiting at the start of S1 instead")
+    val errorMinDistance by NumberSetting("Error / Min Distance", 3.0, 0.0..32.0, 0.5, desc = "Lower bound for landmark/point conditions that carry an error interval; inclusive, AABBs are never affected")
+    val errorMaxDistance by NumberSetting("Error / Max Distance", 15.0, 0.0..64.0, 0.5, desc = "Upper bound for landmark/point conditions that carry an error interval; inclusive, AABBs are never affected")
     val glowR by NumberSetting("Glow R", 255, 0..255, 1, desc = "Legit mode glow red")
     val glowG by NumberSetting("Glow G", 255, 0..255, 1, desc = "Legit mode glow green")
     val glowB by NumberSetting("Glow B", 255, 0..255, 1, desc = "Legit mode glow blue")
@@ -397,7 +399,7 @@ object Savepoint : Module(
             }
 
             val rules = buildRules()
-            val plan = SavepointEngine.decide(buildCtx(steps, screen), rules)
+            val plan = SavepointEngine.decide(buildCtx(steps, screen), rules, errorMinDistance, errorMaxDistance)
             updateTimings(plan, now)
             guiGlowTargetIndex = glowIndexFor(plan)
             lastStatus = when (plan) {
@@ -531,7 +533,7 @@ object Savepoint : Module(
         applyPreset(preset)
     }
 
-    private fun applyPreset(preset: PresetFile) {
+    internal fun applyPreset(preset: PresetFile) {
         var applied = 0
         var skipped = 0
 
@@ -683,10 +685,14 @@ object Savepoint : Module(
 
     internal fun setCellValue(stage: SpStage, step: Int, clazz: DungeonClass, tgt: SpTgt) = setCell(stage, step, clazz, tgt)
 
-    internal fun condLabel(stage: SpStage, step: Int): String? = presetConds["${stage.id}/${step}"]?.describe()
+    // presets written by hand use dots, the planner writes slashes; accept both
+    internal fun condLabel(stage: SpStage, step: Int): String? =
+        presetConds["${stage.id}/${step}"]?.describe() ?: presetConds["${stage.id}.${step}"]?.describe()
 
     internal fun condLabel(stage: SpStage, step: Int, clazz: DungeonClass): String? =
-        presetConds["${stage.id}/${step}/${clazz.name}"]?.describe() ?: presetConds["${stage.id}/${step}"]?.describe()
+        presetConds["${stage.id}/${step}/${clazz.name}"]?.describe()
+            ?: presetConds["${stage.id}/${step}"]?.describe()
+            ?: presetConds["${stage.id}.${step}"]?.describe()
 
     internal fun stepLabel(stage: SpStage, step: Int): String? =
         stepMeta["${stage.id}.$step"]?.label ?: builtinStepLabel(stage, step)
@@ -706,12 +712,17 @@ object Savepoint : Module(
                 subject = c.subject.name,
                 mode = c.mode.name,
                 landmark = c.landmark,
+                x = c.x,
+                y = c.y,
+                z = c.z,
                 radius = c.radius,
                 holdMs = c.holdMs,
                 anyAfterMs = c.anyAfterMs,
                 onFail = c.onFail.name,
                 objective = c.objective?.name,
                 objectiveMin = c.objectiveMin,
+                errorMinDistance = c.errorMinDistance,
+                errorMaxDistance = c.errorMaxDistance,
             )
         }
         return SavepointPresets.toJson(
@@ -860,7 +871,7 @@ object Savepoint : Module(
 
     private fun buildCtx(steps: List<SpStep>, screen: AbstractContainerScreen<*>): SpCtx {
         val p = Minecraft.getInstance().player
-        val myName = runCatching { DungeonUtils.currentDungeonPlayer?.name }.getOrNull()
+        val myName = runCatching { DungeonUtils.currentDungeonPlayer.name }.getOrNull()
         val tmates = runCatching { DungeonUtils.leapTeammates }.getOrDefault(emptyList())
             .filter { myName == null || nameKey(it.name) != nameKey(myName) }
             .map { t ->

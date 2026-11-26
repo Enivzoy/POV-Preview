@@ -20,6 +20,8 @@ data class PresetCondJson(
     val onFail: String? = null,
     val objective: String? = null,
     val objectiveMin: Int? = null,
+    val errorMinDistance: Double? = null,
+    val errorMaxDistance: Double? = null,
 )
 
 data class PresetStepMeta(
@@ -40,12 +42,13 @@ data class PresetFile(
 object SavepointPresets {
 
     private val gson: Gson = GsonBuilder().setPrettyPrinting().create()
-    private val dir: Path = FabricLoader.getInstance().configDir.resolve("leaputils")
-    private val presetsDir: Path = dir.resolve("presets")
-    private val condsFile: Path = dir.resolve("conds.json")
+    // resolved lazily so pure helpers (toCond/toJson/validateInterval) work without fabric loaded
+    private val dir: Path by lazy { FabricLoader.getInstance().configDir.resolve("leaputils") }
+    private val presetsDir: Path by lazy { dir.resolve("presets") }
+    private val condsFile: Path by lazy { dir.resolve("conds.json") }
     private val condType = object : TypeToken<LinkedHashMap<String, PresetCondJson>>() {}.type
 
-    fun load(id: String): PresetFile? = if (id == "adg") {
+    fun load(id: String): PresetFile? = if (id == "adg" || id == "quoi") {
         loadBundled(id) ?: loadCached(id)
     } else {
         loadCached(id) ?: loadBundled(id)
@@ -94,7 +97,34 @@ object SavepointPresets {
         onFail = json.onFail?.let { runCatching { SpOnFail.valueOf(it) }.getOrNull() } ?: SpOnFail.WAIT,
         objective = json.objective?.let { runCatching { SpObjective.valueOf(it) }.getOrNull() },
         objectiveMin = json.objectiveMin ?: 0,
+        errorMinDistance = json.errorMinDistance,
+        errorMaxDistance = json.errorMaxDistance,
     )
+
+    // gson can't tell "absent" from "explicit default", so only write fields the cond really has
+    fun toJson(cond: SpCond): PresetCondJson = PresetCondJson(
+        subject = cond.subject.name,
+        mode = cond.mode.name,
+        landmark = cond.landmark,
+        x = cond.x,
+        y = cond.y,
+        z = cond.z,
+        radius = cond.radius,
+        holdMs = cond.holdMs,
+        anyAfterMs = cond.anyAfterMs,
+        onFail = cond.onFail.name,
+        objective = cond.objective?.name,
+        objectiveMin = cond.objectiveMin,
+        errorMinDistance = cond.errorMinDistance,
+        errorMaxDistance = cond.errorMaxDistance,
+    )
+
+    fun validateInterval(min: Double?, max: Double?): String? {
+        if (min != null && min < 0.0) return "error min distance must be >= 0 (got $min)"
+        if (max != null && max < 0.0) return "error max distance must be >= 0 (got $max)"
+        if (min != null && max != null && max < min) return "error max distance $max is below min $min"
+        return null
+    }
 
     fun loadConds(): Map<String, SpCond> = runCatching {
         if (!Files.exists(condsFile)) return emptyMap()
@@ -106,26 +136,29 @@ object SavepointPresets {
         runCatching {
             Files.createDirectories(dir)
             val json = conds.mapValues { (_, c) ->
-                mapOf(
-                    "subject" to c.subject.name,
-                    "mode" to c.mode.name,
-                    "landmark" to c.landmark,
-                    "x" to c.x,
-                    "y" to c.y,
-                    "z" to c.z,
-                    "radius" to c.radius,
-                    "holdMs" to c.holdMs,
-                    "anyAfterMs" to c.anyAfterMs,
-                    "onFail" to c.onFail.name,
-                    "objective" to c.objective?.name,
-                    "objectiveMin" to c.objectiveMin,
-                )
+                val m = LinkedHashMap<String, Any?>()
+                m["subject"] = c.subject.name
+                m["mode"] = c.mode.name
+                m["landmark"] = c.landmark
+                m["x"] = c.x
+                m["y"] = c.y
+                m["z"] = c.z
+                m["radius"] = c.radius
+                m["holdMs"] = c.holdMs
+                m["anyAfterMs"] = c.anyAfterMs
+                m["onFail"] = c.onFail.name
+                m["objective"] = c.objective?.name
+                m["objectiveMin"] = c.objectiveMin
+                // only persist an interval when the cond actually carries one
+                if (c.errorMinDistance != null) m["errorMinDistance"] = c.errorMinDistance
+                if (c.errorMaxDistance != null) m["errorMaxDistance"] = c.errorMaxDistance
+                m
             }
             Files.writeString(condsFile, gson.toJson(json))
         }
     }
 
-    private val stepMetaFile: Path = dir.resolve("steplabels.json")
+    private val stepMetaFile: Path by lazy { dir.resolve("steplabels.json") }
     private val stepMetaType = object : TypeToken<LinkedHashMap<String, PresetStepMeta>>() {}.type
 
     fun loadStepMeta(): Map<String, PresetStepMeta> = runCatching {
