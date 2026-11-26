@@ -4,6 +4,7 @@ import com.odtheking.odin.config.ModuleConfig
 import com.odtheking.odin.events.core.EventBus
 import com.odtheking.odin.features.Module
 import com.odtheking.odin.features.ModuleManager
+import me.enivzoy.leaputils.dungeonpack.pack.PackSelfTest
 import me.enivzoy.leaputils.pov.BloodRush
 import me.enivzoy.leaputils.pov.EarlyEnter
 import me.enivzoy.leaputils.pov.FastLeap
@@ -18,6 +19,7 @@ object LeapUtilsAddon : ClientModInitializer {
     private val MODULES = listOf<Module>(PosePov, BloodRush, Savepoint, EarlyEnter, FastLeap)
 
     override fun onInitializeClient() {
+        PackSelfTest.run()
         ModuleManager.registerModules(ModuleConfig("LeapUtils.json"), *MODULES.toTypedArray())
         subscribeEnabled(MODULES)
         LeapUtilsCommands.register()
