@@ -31,9 +31,10 @@ class PrefireState(private val delayTicks: Int = 1, private val timeoutTicks: Lo
             fun f(v: Double?): String = v?.let { String.format(java.util.Locale.ROOT, "%.1f", it) } ?: "-"
             fun d(a: Long?, b: Long?): Double? =
                 if (a == null || b == null) null else (b - a) / 1_000_000.0
-            return "path=$path useItemToClick=${f(d(l0, l1))} menuObserved=${f(d(l1, l2))} " +
-                "dispatchToClose=${f(d(l1, l3))} result=${f(d(l1, l4))} total=${f(d(l0, l4))} " +
-                "failure=${failure ?: "-"}"
+            // same keys as the normal path: a negative clickLead means the GUI won the race
+            return "path=$path useItemToClick=${f(d(l0, l1))} menuResponse=${f(d(l0, l2))} " +
+                "clickLead=${f(d(l1, l2))} dispatchToClose=${f(d(l1, l3))} result=${f(d(l1, l4))} " +
+                "total=${f(d(l0, l4))} failure=${failure ?: "-"}"
         }
     }
 

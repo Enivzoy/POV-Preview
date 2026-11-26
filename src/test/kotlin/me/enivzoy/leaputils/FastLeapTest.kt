@@ -727,13 +727,14 @@ class FastLeapTest {
         val normal = FastLeapState.summary(req)
         assertTrue(normal.contains("path=normal"))
         assertTrue(normal.contains("useItemToClick=250.0"))
-        assertTrue(normal.contains("menuObserved=2750.0"))
+        assertTrue(normal.contains("menuResponse=3000.0"))
+        assertTrue(normal.contains("clickLead=2750.0"))
         assertTrue(normal.contains("dispatchToClose=2850.0"))
         assertTrue(normal.contains("result=7750.0"))
 
         // the prefire line must expose the same keys so the two can be compared directly
         val prefire = PrefireState().latency.summary()
-        for (key in listOf("useItemToClick=", "menuObserved=", "dispatchToClose=", "result=")) {
+        for (key in listOf("useItemToClick=", "menuResponse=", "clickLead=", "dispatchToClose=", "result=")) {
             assertTrue(normal.contains(key), "normal summary missing $key")
             assertTrue(prefire.contains(key), "prefire summary missing $key")
         }

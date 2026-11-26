@@ -420,6 +420,8 @@ object FastLeap : Module(
         req.timing.t1 = t1
         req.timing.t2 = t2
         req.timing.t4 = System.nanoTime()
+        // menu was already open, so the observation point is this screen read
+        req.timing.l2 = req.timing.t4
         menuOpenedMs = nowMs
         FastLeapState.markHandled(nowMs)
         dispatch(screen, req.id)
