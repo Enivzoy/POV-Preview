@@ -211,6 +211,8 @@ object FastLeap : Module(
         leapOrderCache.invalidate()
         containerCounter.reset()
         prefireState = null
+        observedScreen = null
+        lastEmptyProbe = Int.MIN_VALUE
         super.onDisable()
     }
 
