@@ -16,6 +16,12 @@ object FastLeapState {
         var dispatchedNs: Long? = null,
         var closedNs: Long? = null,
         var failure: String? = null,
+        // prefire comparison points, monotonic ns like the normal path
+        var l0: Long? = null,
+        var l1: Long? = null,
+        var l2: Long? = null,
+        var l3: Long? = null,
+        var l4: Long? = null,
     )
 
     data class Request(
@@ -32,6 +38,8 @@ object FastLeapState {
         val axes: String,
         val timing: Timing,
         val restoreSlot: Int? = null,
+        // "normal" or "prefire", so the same log can compare both attempts
+        val path: String = "normal",
     )
 
     data class CloseToken(
@@ -174,7 +182,10 @@ object FastLeapState {
     fun consumeClose(nowNs: Long = -1L): CloseToken? {
         val token = closeToken ?: return null
         closeToken = null
-        if (nowNs >= 0) request?.timing?.closedNs = nowNs
+        if (nowNs >= 0) {
+            request?.timing?.closedNs = nowNs
+            request?.timing?.l3 = nowNs
+        }
         return token
     }
 
@@ -215,12 +226,14 @@ object FastLeapState {
 
     fun summary(req: Request): String {
         val t = req.timing
-        fun f(v: Double?): String = v?.let { String.format("%.1f", it) } ?: "-"
-        return "request=${req.id} rule=${req.ruleId} target=${req.targetName} source=${req.source.name.lowercase()} " +
+        fun f(v: Double?): String = v?.let { String.format(java.util.Locale.ROOT, "%.1f", it) } ?: "-"
+        return "request=${req.id} path=${req.path} rule=${req.ruleId} target=${req.targetName} source=${req.source.name.lowercase()} " +
             "item=${req.itemId.ifEmpty { "-" }} swapped=${req.swapped} failed=${t.failure ?: "-"} " +
             "ms context=${f(elapsedMs(t.t0, t.t1))} evaluate=${f(elapsedMs(t.t1, t.t2))} " +
             "item=${f(elapsedMs(t.t2, t.t3))} menuOpen=${f(elapsedMs(t.t3, t.t4))} " +
             "menuPopulate=${f(elapsedMs(t.t4, t.t5))} click=${f(elapsedMs(t.t5, t.t6))} " +
-            "totalToClick=${f(elapsedMs(t.t0, t.t6))}"
+            "totalToClick=${f(elapsedMs(t.t0, t.t6))} " +
+            "prefire useItemToClick=${f(elapsedMs(t.l0, t.l1))} menuObserved=${f(elapsedMs(t.l1, t.l2))} " +
+            "dispatchToClose=${f(elapsedMs(t.l1, t.l3))} result=${f(elapsedMs(t.l1, t.l4))}"
     }
 }
