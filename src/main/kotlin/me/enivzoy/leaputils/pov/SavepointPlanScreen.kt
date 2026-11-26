@@ -9,10 +9,13 @@ import com.odtheking.odin.utils.modMessage
 import com.odtheking.odin.utils.render.roundedRect
 import com.odtheking.odin.utils.render.text
 import com.odtheking.odin.utils.skyblock.dungeon.DungeonClass
+import com.mojang.blaze3d.platform.InputConstants
 import net.minecraft.client.Minecraft
 import net.minecraft.client.gui.Font
 import net.minecraft.client.gui.GuiGraphicsExtractor
 import net.minecraft.client.gui.screens.Screen
+import net.minecraft.client.input.CharacterEvent
+import net.minecraft.client.input.KeyEvent
 import net.minecraft.client.input.MouseButtonEvent
 import net.minecraft.network.chat.Component
 import kotlin.math.abs
@@ -39,6 +42,10 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
     private var panel: String? = null
     private var helpScroll = 0f
     private var helpContentH = 0
+    private var quoiUrl = QuoiImport.DEFAULT_URL
+    private var quoiTyping = false
+    private var quoiBusy = false
+    private var quoiStatus: String? = null
 
     override fun isPauseScreen(): Boolean = false
 
@@ -64,7 +71,52 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
             r.action(event.button())
             return true
         }
+        if (quoiTyping) quoiTyping = false
         return super.mouseClicked(event, doubleClick)
+    }
+
+    override fun keyPressed(event: KeyEvent): Boolean {
+        if (!quoiTyping) return super.keyPressed(event)
+        when (event.key()) {
+            InputConstants.KEY_ESCAPE -> {
+                quoiTyping = false
+                return true
+            }
+            InputConstants.KEY_RETURN -> {
+                quoiTyping = false
+                startQuoiImport(bundled = false)
+                return true
+            }
+            InputConstants.KEY_BACKSPACE -> {
+                quoiUrl = quoiUrl.dropLast(1)
+                return true
+            }
+            InputConstants.KEY_V -> if (event.hasControlDown()) {
+                val text = runCatching { Minecraft.getInstance().keyboardHandler.clipboard }.getOrDefault("")
+                quoiUrl = (quoiUrl + text).trim()
+                return true
+            }
+        }
+        return true
+    }
+
+    override fun charTyped(event: CharacterEvent): Boolean {
+        if (!quoiTyping) return super.charTyped(event)
+        val ch = event.codepointAsString()
+        if (ch.isNotEmpty() && quoiUrl.length < QUOI_URL_MAX) quoiUrl += ch
+        return true
+    }
+
+    private fun startQuoiImport(bundled: Boolean) {
+        if (quoiBusy) return
+        quoiBusy = true
+        quoiStatus = if (bundled) "loading the bundled quoi plan..." else "fetching ${quoiUrl.trim()}..."
+        val url = quoiUrl.trim()
+        QuoiImport.importAsync(url, bundled) { err ->
+            quoiBusy = false
+            quoiStatus = if (err == null) "§aimported - matrix filled" else "§cfailed: §f$err"
+            if (err == null) quoiTyping = false
+        }
     }
 
     override fun extractRenderState(graphics: GuiGraphicsExtractor, mouseX: Int, mouseY: Int, partialTick: Float) {
@@ -144,6 +196,36 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
                 }
             }
             bx2 -= 6
+        }
+
+        // quoi import row: url field + local/remote import, fills every planner cell
+        run {
+            val rowY = 48
+            val pickW = font.width("Bundled") + 14
+            val importW = font.width("Import quoi") + 14
+            var x = MARGIN
+            graphics.text("§fquoi config", x, rowY + 6, Colors.WHITE)
+            x += font.width("quoi config") + 8
+            val fieldX1 = width - MARGIN - pickW - importW - 12
+            field(graphics, x, rowY, fieldX1, rowY + 18, mouseX, mouseY)
+            x = fieldX1 + 6
+            button(graphics, x, rowY, x + importW, rowY + 18, if (quoiBusy) "..." else "Import quoi", mouseX, mouseY,
+                tooltip = listOf(
+                    "§fImport quoi",
+                    "§7downloads quoi.json and its sibling quoi-landmarks.json",
+                    "§7fills every planner cell, lands §f${QuoiImport.PREFIX}<name>§7 landmarks",
+                    "§7and stamps min 3 / max 15 on landmark conds",
+                    "§7Enter imports, Esc cancels, click the field to type a path or URL",
+                )) { startQuoiImport(bundled = false) }
+            x += importW + 6
+            button(graphics, x, rowY, x + pickW, rowY + 18, "Bundled", mouseX, mouseY,
+                tooltip = listOf(
+                    "§fBundled quoi",
+                    "§7imports the copy shipped in the jar - no network needed",
+                )) { startQuoiImport(bundled = true) }
+            quoiStatus?.let { msg ->
+                graphics.text("§8$msg", MARGIN, rowY + 21, Colors.MINECRAFT_DARK_GRAY)
+            }
         }
 
         val chipH = chipHeight()
@@ -285,6 +367,31 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
         label: String, mouseX: Int, mouseY: Int, danger: Boolean = false, tooltip: List<String>? = null, action: () -> Unit,
     ) {
         buttonCycle(graphics, x0, y0, x1, y1, label, mouseX, mouseY, danger, tooltip) { _ -> action() }
+    }
+
+    // editable text field: clicking it focuses typing, the label shows the caret while active
+    private fun field(
+        graphics: GuiGraphicsExtractor, x0: Int, y0: Int, x1: Int, y1: Int, mouseX: Int, mouseY: Int,
+    ) {
+        val hovered = mouseX >= x0 && mouseX < x1 && mouseY >= y0 && mouseY < y1
+        val base = if (quoiTyping) GuiTheme.accent else GuiTheme.surface
+        graphics.roundedRect(x0, y0, x1, y1, if (hovered) base.hoverTint(0.2f) else base.rgba, 3f)
+        val font = Minecraft.getInstance().font
+        val shown = if (quoiUrl.isEmpty() && !quoiTyping) "§8paste a quoi.json URL or path" else "§f$quoiUrl"
+        val maxW = x1 - x0 - 8
+        var text = shown
+        while (font.width(text) > maxW && text.length > 4) text = "§8..." + text.substring(4)
+        graphics.text(text, x0 + 4, y0 + (y1 - y0 - font.lineHeight) / 2 + 1, Colors.WHITE)
+        if (quoiTyping) {
+            val caretX = (x0 + 4 + font.width(text)).coerceAtMost(x1 - 4)
+            graphics.fill(caretX, y0 + 3, caretX + 1, y1 - 3, Colors.WHITE.rgba)
+        }
+        regions.add(Region(x0, y0, x1, y1, action = { quoiTyping = true }, tooltip = listOf(
+            "§fquoi config source",
+            "§7URL (http/https) or a local path to a quoi.json file",
+            "§7the sibling ${QuoiImport.LANDMARK_FILE} is fetched from the same folder",
+            "§7enter = import · esc = stop typing",
+        )))
     }
 
     private fun buttonCycle(
@@ -572,5 +679,6 @@ class SavepointPlanScreen : Screen(Component.literal("Savepoint Planner")) {
         private const val CONFIRM_MS = 5_000L
         private const val SCROLL_SPEED = 16f
         private const val TOOLTIP_W = 190
+        private const val QUOI_URL_MAX = 240
     }
 }
