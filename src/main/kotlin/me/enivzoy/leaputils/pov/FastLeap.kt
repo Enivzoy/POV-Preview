@@ -29,14 +29,16 @@ import me.enivzoy.leaputils.pov.fastleap.FastLeapResult
 import me.enivzoy.leaputils.pov.fastleap.FastLeapRule
 import me.enivzoy.leaputils.pov.fastleap.FastLeapState
 import me.enivzoy.leaputils.pov.fastleap.FastLeapTriggerSource
-import me.enivzoy.leaputils.pov.fastleap.ContainerCounter
+import me.enivzoy.leaputils.pov.fastleap.ContainerIdPredictor
 import me.enivzoy.leaputils.pov.fastleap.LeapOrderCache
+import me.enivzoy.leaputils.pov.fastleap.QueueXGate
 import me.enivzoy.leaputils.pov.fastleap.PositionCondition
 import me.enivzoy.leaputils.pov.fastleap.PrefireState
 import me.enivzoy.leaputils.pov.fastleap.RegionSpec
 import me.enivzoy.leaputils.pov.fastleap.TargetSelectorType
 import me.enivzoy.leaputils.pov.fastleap.TargetSpec
 import me.enivzoy.leaputils.pov.fastleap.WarningThrottle
+import me.enivzoy.leaputils.pov.ContainerIdLog
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents
 import net.fabricmc.loader.api.FabricLoader
 import net.minecraft.client.Minecraft
@@ -66,6 +68,8 @@ object FastLeap : Module(
     private val warningThrottle = WarningThrottle()
     private var tickCounter = 0L
     private var levelIdentity: Any? = null
+    private var playerIdentity: Any? = null
+    private var connectionGeneration = 0
     private var lastLeapedName: String? = null
     private var hudLine = ""
     private var lastSoloWarnAt = 0L
@@ -75,7 +79,7 @@ object FastLeap : Module(
     private var observedScreen: Screen? = null
     private var lastEmptyProbe = Int.MIN_VALUE
     private var prefireState: PrefireState? = null
-    private var containerCounter = ContainerCounter()
+    private val containerIdPredictor = ContainerIdPredictor()
     private val cooldownUntil = HashMap<String, Long>()
     private var dispatchTimes = ArrayDeque<Long>()
 
@@ -155,7 +159,37 @@ object FastLeap : Module(
     val useContainerPredictor by BooleanSetting(
         "Use local container id predictor [experimental]",
         false,
-        desc = "Shadow only: track the next container id for diagnostics, never sends a packet",
+        desc = "Shadow only: observe every opened container and predict the next id, never sends a packet",
+    )
+    val saveContainerIds by BooleanSetting(
+        "Save container id log [experimental]",
+        false,
+        desc = "Append every observed container id to containerid.log, local only",
+    )
+    val queueX by BooleanSetting(
+        "QueueX / 0PingX [experimental]",
+        false,
+        desc = "Dispatch the teammate click on the menu contents packet instead of the next tick",
+    )
+    val queueXRequireLearnedOrder by BooleanSetting(
+        "QueueX: Require learned UUID order [experimental]",
+        true,
+        desc = "Only the early flush needs a validated uuid to slot mapping; the normal path still runs",
+    )
+    val queueXFlushOnOpenPacket by BooleanSetting(
+        "QueueX: Flush on open packet [experimental]",
+        true,
+        desc = "Flush the queued click once the menu contents are applied, still before render",
+    )
+    val queueXPrefireBeforeOpen by BooleanSetting(
+        "QueueX: Prefire before client open [experimental]",
+        false,
+        desc = "Inert: no container or state id exists before the open packet, the content flush is used",
+    )
+    val queueXDebugLog by BooleanSetting(
+        "QueueX: Debug log [experimental]",
+        false,
+        desc = "Log why the early flush ran or was skipped to savepoint.log",
     )
     val experimentalPrefire by BooleanSetting(
         "Experimental leap prefire",
@@ -209,7 +243,8 @@ object FastLeap : Module(
         hudLine = ""
         runIndex = 0
         leapOrderCache.invalidate()
-        containerCounter.reset()
+        connectionGeneration++
+        containerIdPredictor.onConnection(connectionGeneration)
         prefireState = null
         observedScreen = null
         lastEmptyProbe = Int.MIN_VALUE
@@ -283,11 +318,7 @@ object FastLeap : Module(
     private fun onScreenOpen(screen: Screen) {
         val container = screen as? AbstractContainerScreen<*> ?: return
         if (!isLeapScreen(container)) return
-        if (leapOrderingDiagnostics || saveLeapOrdering) recordLeapOrder(container)
-        if (useContainerPredictor) {
-            containerCounter.observe(container.menu.containerId)
-            SpLog.info("fastleap", "container=${container.menu.containerId} next=${containerCounter.predict() ?: "-"}")
-        }
+        if (leapOrderingDiagnostics || saveLeapOrdering || queueX) recordLeapOrder(container)
         prefireState?.let { st ->
             val res = st.onMenuOpen(container.menu.containerId, FastLeapState.generation, System.nanoTime())
             if (prefireDiagnostics) SpLog.info("prefire", "menu open reconcile=$res phase=${st.phase} failure=${st.failure ?: "-"}")
@@ -333,11 +364,85 @@ object FastLeap : Module(
         }
     }
 
+    // the real open packet is the only seed; a predicted id alone never confirms anything
+    fun onOpenScreenPacket(containerId: Int, title: String) {
+        if (!enabled) return
+        if (!(useContainerPredictor || saveContainerIds || queueX)) return
+        // id 0 is the player inventory and never came from the server counter
+        if (containerId < ContainerIdPredictor.MIN_ID) return
+        val kind = if (isLeapTitle(title)) ContainerIdPredictor.KIND_LEAP else ContainerIdPredictor.KIND_CONTAINER
+        val res = containerIdPredictor.observe(containerId, kind, System.currentTimeMillis(), tickCounter)
+        if (saveContainerIds) ContainerIdLog.append(connectionGeneration, kind, title, res)
+        if (queueXDebugLog && res.mismatch) SpLog.info("queuex", "id mismatch id=$containerId kind=$kind")
+        // reconcile only against the menu the request was armed for
+        if (kind == ContainerIdPredictor.KIND_LEAP) {
+            FastLeapState.request?.let { req ->
+                if (!FastLeapState.isStale(req.generation)) {
+                    req.timing.q1 = req.timing.q1 ?: System.nanoTime()
+                    if (res.observation.predictedId != null) req.timing.q5 = System.nanoTime()
+                }
+            }
+        }
+    }
+
+    // contents are applied before this returns, so the click state id and slots are real
+    fun onContainerContentPacket(containerId: Int) {
+        if (!enabled) return
+        if (containerId == ContainerIdPredictor.ID_INVENTORY) return
+        val req = FastLeapState.request ?: return
+        if (FastLeapState.isStale(req.generation)) return
+        val screen = runCatching { mc.gui.screen() }.getOrNull() as? AbstractContainerScreen<*> ?: return
+        if (screen.menu.containerId != containerId || !isLeapScreen(screen)) return
+        if (req.timing.q2 == null) req.timing.q2 = System.nanoTime()
+        if (!queueX) return
+        val dp = resolveTarget(req.targetName)
+        val decision = QueueXGate.decide(
+            QueueXGate.Input(
+                enabled = queueX,
+                requestPresent = true,
+                sameRequest = FastLeapState.request?.id == req.id,
+                generationOk = !FastLeapState.isStale(req.generation),
+                alreadyDispatched = FastLeapState.isDispatched(),
+                confidence = containerIdPredictor.confidence,
+                confirmedRequestId = containerIdPredictor.lastConfirmedRequestId,
+                requestId = req.id,
+                learnedOrder = learnedSlotReady(req.targetName),
+                requireLearnedOrder = queueXRequireLearnedOrder,
+                containerMatches = containerId == containerIdPredictor.lastAuthoritativeId,
+                leapScreen = true,
+                withinBudget = withinLeapBudget(System.currentTimeMillis()),
+                targetAlive = dp != null && !dp.isDead,
+                slotsApplied = true,
+                flushOnOpenPacket = queueXFlushOnOpenPacket,
+            )
+        )
+        if (!decision.allow) {
+            if (queueXDebugLog) SpLog.info("queuex", "skip request=${req.id}: ${decision.deny.name.lowercase()}")
+            return
+        }
+        req.timing.q3 = System.nanoTime()
+        if (queueXDebugLog) SpLog.info("queuex", "flush request=${req.id} container=$containerId")
+        // tryExecute keeps the odin menu gate, a refusal never falls back to a guessed click
+        tryExecute(screen, req.id)
+    }
+
+    // the early flush needs the learned uuid mapping; the normal tick path does not
+    private fun learnedSlotReady(name: String): Boolean {
+        if (!leapOrderCache.validated()) return false
+        val roster = runCatching { DungeonUtils.leapTeammates }.getOrDefault(emptyList())
+        val target = roster.firstOrNull { it.name.equals(name, ignoreCase = true) } ?: return false
+        val uuid = runCatching { OdinAccess.entityOf(target)?.uuid?.toString() }.getOrNull() ?: return false
+        return leapOrderCache.slotFor(uuid) != null
+    }
+
     private fun onTick() {
         tickCounter++
         val level = mc.level
-        if (level !== levelIdentity) {
+        val player = mc.player
+        // a new world, session or player object resets the shadow counter seed
+        if (level !== levelIdentity || player !== playerIdentity) {
             levelIdentity = level
+            playerIdentity = player
             cooldownUntil.clear()
             dispatchTimes = ArrayDeque()
             FastLeapState.bumpGeneration()
@@ -345,10 +450,15 @@ object FastLeap : Module(
             // a new world is a new dungeon run: no slot or counter from the old one may survive
             runIndex++
             leapOrderCache.invalidate()
-            containerCounter.reset()
+            connectionGeneration++
+            containerIdPredictor.onConnection(connectionGeneration)
             prefireState?.onWorldChange()
             observedScreen = null
             lastEmptyProbe = Int.MIN_VALUE
+        }
+        // a pending prediction that never saw its open is a gap, not a confirmation
+        if ((useContainerPredictor || saveContainerIds || queueX) && containerIdPredictor.expireIfDue(tickCounter)) {
+            if (prefireDiagnostics) SpLog.info("containerid", "prediction expired at tick $tickCounter")
         }
         val container = runCatching { mc.gui.screen() }.getOrNull() as? AbstractContainerScreen<*>
         if (container == null || !isLeapScreen(container)) {
@@ -359,7 +469,7 @@ object FastLeap : Module(
             return
         }
         // contents can arrive ticks after the screen, so the tick also probes the real menu
-        if ((leapOrderingDiagnostics || saveLeapOrdering) && observedScreen !== container) recordLeapOrder(container)
+        if ((leapOrderingDiagnostics || saveLeapOrdering || queueX) && observedScreen !== container) recordLeapOrder(container)
         val req = FastLeapState.request
         if (req != null && !FastLeapState.isStale(req.generation)) {
             if (req.timing.t4 == null) {
@@ -486,8 +596,17 @@ object FastLeap : Module(
         }
         if (profiling) SpLog.info("fastleap", "request=${req.id} rule=${req.ruleId} target=${req.targetName} item=${req.itemId} swapped=${req.swapped}")
         // normal client interaction, the server opens the real menu
-        mc.gameMode?.useItem(player, InteractionHand.MAIN_HAND)
+        req.timing.q0 = System.nanoTime()
+        val useResult = mc.gameMode?.useItem(player, InteractionHand.MAIN_HAND)
         req.timing.t3 = System.nanoTime()
+        // queuex is armed only once the use went out, and only with a seeded shadow counter
+        if (queueX) {
+            if (useResult?.consumesAction() == true) {
+                containerIdPredictor.predictNext(req.id, ContainerIdPredictor.KIND_LEAP, tickCounter, FastLeapState.MENU_TIMEOUT_TICKS)
+            } else {
+                containerIdPredictor.cancelPending()
+            }
+        }
         return Attempt.Matched
     }
 
@@ -516,6 +635,7 @@ object FastLeap : Module(
         // the teammate click was issued, timings and close start from this exact point
         val dispatchedNs = System.nanoTime()
         req.timing.t6 = dispatchedNs
+        req.timing.q4 = dispatchedNs
         FastLeapState.markDispatched(dispatchedNs)
         // mirror the prefire marks so one log line can compare both paths
         req.timing.l0 = req.timing.t3 ?: dispatchedNs
@@ -642,7 +762,7 @@ object FastLeap : Module(
         val prepared = st.prepare(
             generation = FastLeapState.generation,
             targetUuid = uuid,
-            containerId = containerCounter.predict(),
+            containerId = containerIdPredictor.candidateNext(),
             stateId = null,
             slot = slot,
             orderingVerified = orderingVerified,
@@ -835,8 +955,11 @@ object FastLeap : Module(
 
     private fun isLeapScreen(screen: AbstractContainerScreen<*>): Boolean {
         val title = runCatching { screen.title.string }.getOrNull() ?: return false
-        return title == "Spirit Leap" || title == "Teleport to Player" || title == "Obsidian"
+        return isLeapTitle(title)
     }
+
+    private fun isLeapTitle(title: String): Boolean =
+        title == "Spirit Leap" || title == "Teleport to Player" || title == "Obsidian"
 
     fun rules(): List<FastLeapRule> = rules
 
