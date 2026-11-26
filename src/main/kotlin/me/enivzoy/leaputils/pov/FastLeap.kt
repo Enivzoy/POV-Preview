@@ -29,7 +29,10 @@ import me.enivzoy.leaputils.pov.fastleap.FastLeapResult
 import me.enivzoy.leaputils.pov.fastleap.FastLeapRule
 import me.enivzoy.leaputils.pov.fastleap.FastLeapState
 import me.enivzoy.leaputils.pov.fastleap.FastLeapTriggerSource
+import me.enivzoy.leaputils.pov.fastleap.ContainerCounter
+import me.enivzoy.leaputils.pov.fastleap.LeapOrderCache
 import me.enivzoy.leaputils.pov.fastleap.PositionCondition
+import me.enivzoy.leaputils.pov.fastleap.PrefireState
 import me.enivzoy.leaputils.pov.fastleap.RegionSpec
 import me.enivzoy.leaputils.pov.fastleap.TargetSelectorType
 import me.enivzoy.leaputils.pov.fastleap.TargetSpec
@@ -67,6 +70,10 @@ object FastLeap : Module(
     private var hudLine = ""
     private var lastSoloWarnAt = 0L
     private var menuOpenedMs = 0L
+    private var runIndex = 0
+    private val leapOrderCache = LeapOrderCache()
+    private var prefireState: PrefireState? = null
+    private var containerCounter = ContainerCounter()
     private val cooldownUntil = HashMap<String, Long>()
     private var dispatchTimes = ArrayDeque<Long>()
 
@@ -131,6 +138,50 @@ object FastLeap : Module(
     val feedback by SelectorSetting("Feedback", FeedbackMode.ERRORS, desc = "How much Fast Leap says in chat", listOf(FeedbackMode.ERRORS, FeedbackMode.VERBOSE, FeedbackMode.OFF))
     val dryRun by BooleanSetting("Dry run", false, desc = "Log the decision without clicking")
     val profiling by BooleanSetting("Profile timings", false, desc = "Write t0 to t6 timings per request to savepoint.log")
+
+    // experimental, every one off: nothing here changes behaviour while off
+    val saveLeapOrdering by BooleanSetting(
+        "Save leap ordering log [experimental]",
+        false,
+        desc = "Write the observed Spirit Leap slot order to leaporder.log, local only",
+    )
+    val leapOrderingDiagnostics by BooleanSetting(
+        "Leap ordering diagnostics [experimental]",
+        false,
+        desc = "Log observed uuid, class and slot per menu to savepoint.log",
+    )
+    val useContainerPredictor by BooleanSetting(
+        "Use local container id predictor [experimental]",
+        false,
+        desc = "Shadow only: track the next container id for diagnostics, never sends a packet",
+    )
+    val experimentalPrefire by BooleanSetting(
+        "Experimental leap prefire",
+        false,
+        desc = "Inert: the packet prefire path is not implemented, this only gates the state machine",
+    )
+    val prefireDelayTicks by NumberSetting(
+        "Prefire delay (client ticks)",
+        1,
+        1..10,
+        1,
+        desc = "Ticks between the item use and the speculative click, when prefire exists",
+    )
+    val requireVerifiedSlotOrder by BooleanSetting(
+        "Require verified slot order [experimental]",
+        true,
+        desc = "Hard gate: never prefire without a confirmed uuid to slot mapping",
+    )
+    val prefireFallbackToMenu by BooleanSetting(
+        "Prefire fallback to normal menu [experimental]",
+        true,
+        desc = "On any mismatch use the normal menu path instead of a guessed click",
+    )
+    val prefireDiagnostics by BooleanSetting(
+        "Prefire diagnostics [experimental]",
+        false,
+        desc = "Log prefire state transitions and latencies to savepoint.log",
+    )
 
     private val gson: Gson = GsonBuilder().setPrettyPrinting().create()
     private val dir: Path = FabricLoader.getInstance().configDir.resolve("leaputils")
@@ -224,6 +275,15 @@ object FastLeap : Module(
     private fun onScreenOpen(screen: Screen) {
         val container = screen as? AbstractContainerScreen<*> ?: return
         if (!isLeapScreen(container)) return
+        if (leapOrderingDiagnostics || saveLeapOrdering) recordLeapOrder(container)
+        if (useContainerPredictor) {
+            containerCounter.observe(container.menu.containerId)
+            SpLog.info("fastleap", "container=${container.menu.containerId} next=${containerCounter.predict() ?: "-"}")
+        }
+        prefireState?.let { st ->
+            val res = st.onMenuOpen(container.menu.containerId, FastLeapState.generation, System.nanoTime())
+            if (prefireDiagnostics) SpLog.info("prefire", "menu open reconcile=$res phase=${st.phase} failure=${st.failure ?: "-"}")
+        }
         if (firedThisScreen === screen) return
         firedThisScreen = screen
 
@@ -303,6 +363,7 @@ object FastLeap : Module(
 
         val ctx = buildContext(source) ?: return Attempt.Blocked
         val t1 = System.nanoTime()
+        if (experimentalPrefire) tryPrefire(ctx)
         val applyFallback = fallbackMode != FallbackMode.NOTHING && onlyRuleId == null
         val res = FastLeapEvaluator.evaluate(enabledRules(), ctx, onlyRuleId, applyFallback)
         val t2 = System.nanoTime()
@@ -434,6 +495,9 @@ object FastLeap : Module(
         val dispatchedNs = System.nanoTime()
         req.timing.t6 = dispatchedNs
         FastLeapState.markDispatched(dispatchedNs)
+        // mirror the prefire marks so one log line can compare both paths
+        req.timing.l0 = req.timing.t3 ?: dispatchedNs
+        req.timing.l1 = dispatchedNs
         dispatchTimes.addLast(System.currentTimeMillis())
         markCooldown(req.itemId)
         lastLeapedName = req.targetName
@@ -532,6 +596,37 @@ object FastLeap : Module(
     }
 
     // debounce is only a duplicate guard, the first accepted trigger is never delayed
+    // prefire is inert on purpose: the click packet needs a state id that 26.3 never exposes
+    // before the menu contents arrive, so the gate aborts and the normal path runs instead
+    private fun tryPrefire(ctx: FastLeapContext) {
+        val st = prefireState ?: PrefireState(prefireDelayTicks.toInt()).also { prefireState = it }
+        if (st.inFlight) {
+            if (prefireDiagnostics) SpLog.info("prefire", "skipped: request ${st.prepared?.requestId} still in flight")
+            return
+        }
+        st.reset()
+        val res = FastLeapEvaluator.evaluate(enabledRules(), ctx)
+        val plan = res as? FastLeapResult.Plan ?: return
+        val uuid = runCatching { OdinAccess.entityOf(resolveTarget(plan.teammate.name) ?: return)?.uuid?.toString() }.getOrNull()
+        val slot = uuid?.let { leapOrderCache.slotFor(it) }
+        // no verified state id exists client side, so prepare always aborts here
+        val prepared = st.prepare(
+            generation = FastLeapState.generation,
+            targetUuid = uuid,
+            containerId = containerCounter.predict(),
+            stateId = null,
+            slot = slot,
+            orderingVerified = requireVerifiedSlotOrder && leapOrderCache.validated(),
+            nowTick = tickCounter,
+        )
+        if (prefireDiagnostics) {
+            val why = prepared?.let { "armed container=${it.containerId} slot=${it.slot}" } ?: "aborted: ${st.failure}"
+            SpLog.info("prefire", "$why (falling back to the normal menu path)")
+        }
+        // a prepared request would only arm the state machine, never send a packet
+        if (prepared == null) st.reset()
+    }
+
     private fun withinLeapBudget(nowMs: Long): Boolean {
         val cap = maxLeapsPerSecond.coerceAtLeast(1)
         while (dispatchTimes.isNotEmpty() && nowMs - dispatchTimes.first() > 1000L) dispatchTimes.removeFirst()
@@ -653,6 +748,29 @@ object FastLeap : Module(
 
     private fun parseNames(raw: String): Set<String> =
         raw.split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+
+    // learn the real menu order once per run, from the container itself, not from a name guess
+    private fun recordLeapOrder(screen: AbstractContainerScreen<*>) {
+        val roster = runCatching { DungeonUtils.leapTeammates }.getOrDefault(emptyList())
+        val uuids = roster.mapNotNull { dp -> runCatching { OdinAccess.entityOf(dp)?.uuid?.toString() }.getOrNull() }
+        if (leapOrderCache.beginRun(++runIndex, uuids) == null) return
+        val classOf = { name: String ->
+            roster.firstOrNull { it.name.equals(name, ignoreCase = true) }?.clazz?.name
+        }
+        val entries = LeapOrderProbe.scan(screen, classOf)
+        if (entries.isEmpty()) {
+            if (leapOrderingDiagnostics) SpLog.info("leaporder", "menu ${screen.menu.containerId}: no profile heads yet")
+            return
+        }
+        if (leapOrderingDiagnostics) {
+            SpLog.info("leaporder", "menu ${screen.menu.containerId}: " + entries.joinToString(", ") { "${it.uuid}@${it.slot}/${it.clazz}" })
+        }
+        if (!saveLeapOrdering) {
+            leapOrderCache.observe(entries)
+            return
+        }
+        LeapOrderProbe.write(leapOrderCache, entries)
+    }
 
     // one message per solo stretch, not one per click
     private fun warnSolo(count: Int) {
