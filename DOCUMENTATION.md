@@ -291,6 +291,38 @@ or an inline AABB/point object.
 - Repeated warnings are throttled to once per rule/reason per 5 s
 - Close GUI after teammate click dispatch **ON**, GUI close delay **1 ms**
 
+### Experimental (all off by default, and inert)
+
+These settings exist so the diagnostics can be turned on, but **packet prefire is not
+implemented**. The audited blocker is the click state ID: `ServerboundContainerClickPacket` needs a
+menu revision ID that Minecraft 26.3 only advances when the server sends container contents, and
+`OdinAccess.autoLeapTo` needs an open screen. There is no verified way to know either value before
+the menu arrives, and a guessed container id, state id or slot could leap to the wrong teammate, so
+the speculative click is deliberately absent. With `Experimental leap prefire` ON the module logs
+the aborted prediction and runs the normal menu path; it never sends a packet.
+
+| Setting | Default | What it really does |
+|---|---:|---|
+| `Save leap ordering log` | OFF | Writes the observed `uuid -> slot` order to `leaporder.log` |
+| `Leap ordering diagnostics` | OFF | One `savepoint.log` line per menu with uuid, class and slot |
+| `Use local container id predictor` | OFF | Shadow counter from real menu ids for diagnostics only |
+| `Experimental leap prefire` | OFF | Gates the state machine; the click is never sent |
+| `Prefire delay (client ticks)` | 1 | Delay the state machine would use before a click |
+| `Require verified slot order` | ON | Refuses prediction without two agreeing menu observations |
+| `Prefire fallback to normal menu` | ON | Falls back instead of ever retrying a guessed click |
+| `Prefire diagnostics` | OFF | Logs prefire state transitions and latencies |
+
+**Slot order is learned, not assumed.** `leaporder.log` records the real order seen in each menu:
+`{"run-000001": {"players": {"<uuid>": ["[0]", "TANK"]}, "slotByUuid": {"<uuid>": 11}}}`. The
+`[n]` value is the ordinal among the observed teammate heads and `slotByUuid` is the absolute
+container slot, kept separate so an ordinal is never mistaken for a slot. The file is local only,
+atomic (temp file then replace), capped at 1 MB, and never uploaded. One observation never
+authorises a prediction: two menus must agree before `LeapOrderCache.validated()` is true.
+The uuid is read from the item's real profile component, never guessed from a name or skin.
+
+Hidden-GUI rendering (`Hide Spirit Leap GUI Rendering`) is **not implemented**: suppressing the
+draw event is explicitly out of scope, so the menu stays visible.
+
 ### Distance conditions
 
 A condition with a landmark or point and `errorMinDistance`/`errorMaxDistance` uses the inclusive
@@ -402,6 +434,7 @@ All under `config/leaputils/`:
 | `presets/adg.json` | The bundled ADG preset |
 | `presets/mm7g.json` | The bundled MM7G preset |
 | `fastleap.json` | Optional Fast Leap rule pack override over the built-in pack |
+| `leaporder.log` | Observed Spirit Leap slot order per run, only if you enable the ordering log |
 | `pov-cache/` | Cached room-geometry bundles (downloaded or built locally) |
 
 ---
