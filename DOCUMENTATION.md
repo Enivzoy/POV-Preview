@@ -306,6 +306,12 @@ the aborted prediction and runs the normal menu path; it never sends a packet.
 | `Save leap ordering log` | OFF | Writes the observed `uuid -> slot` order to `leaporder.log` |
 | `Leap ordering diagnostics` | OFF | One `savepoint.log` line per menu with uuid, class and slot |
 | `Use local container id predictor` | OFF | Shadow counter from real menu ids for diagnostics only |
+| `Save container id log` | OFF | Appends every observed server container id to `containerid.log` |
+| `QueueX / 0PingX` | OFF | Flushes the queued click when the contents packet is applied |
+| `QueueX: Require learned UUID order` | ON | The early flush also needs the validated uuid to slot mapping |
+| `QueueX: Flush on open packet` | ON | The safe early flush; can be turned off to keep only the normal path |
+| `QueueX: Prefire before client open` | OFF | Inert; no state id exists before the open packet |
+| `QueueX: Debug log` | OFF | One `queuex` line per flush or skip reason |
 | `Experimental leap prefire` | OFF | Gates the state machine; the click is never sent |
 | `Prefire delay (client ticks)` | 1 | Delay the state machine would use before a click |
 | `Require verified slot order` | ON | Refuses prediction without two agreeing menu observations |
@@ -336,6 +342,44 @@ draw event is explicitly out of scope, so the menu stays visible. The first-leap
 later-leaps-prefired policy is also **not implemented**, because it depends on the same unverified
 click. `Require verified slot order` and `Prefire fallback to normal menu` stay ON (they are hard
 gates inside a path that is itself off), so they cannot weaken anything while prefire is disabled.
+
+### Container id prediction and QueueX / 0PingX
+
+The server owns the container counter. In the target version the private
+`ServerPlayer.nextContainerCounter()` is `containerCounter = containerCounter % 100 + 1`, so active
+ids are `1..100` and wrap `100 -> 1`; id `0` is the client-side player inventory and never comes from
+that counter. `ContainerIdPredictor` is a pure shadow: it never allocates an id and never sends a
+packet. Every real open is authoritative and overwrites the guess, and a connection, world or player
+change resets the seed.
+
+| Confidence | Meaning |
+|---|---|
+| `UNKNOWN` | No real open seen since the session started |
+| `SEEDED` | One real open seen, next id can be predicted |
+| `PREDICTED` | One tentative next id is pending for a request |
+| `CONFIRMED` | The pending prediction matched the real open packet |
+| `INVALID` | A mismatch, timeout, reconnect or bad open invalidated prediction |
+
+Observation happens on the inbound `ClientboundOpenScreenPacket`, at the head of
+`ClientPacketListener.handleOpenScreen`, before any screen or render work. The click cannot be
+pre-dispatched before the client open: the container id, state id and slot table do not exist
+client-side until the packets arrive, so `QueueX: Prefire before client open` is deliberately inert.
+The safe flush runs at the return of `ClientPacketListener.handleContainerContent`, after
+`initializeContents` applied the real state id and slots, and still before the frame is rendered.
+It only ever allows one click, and only when confidence is `CONFIRMED` for the same request, the
+learned uuid order is valid, the container matches, the target is alive and the screen is a leap
+menu. A mismatch, timeout, decline, disconnect, world change or party change cancels the pending
+prediction and the normal path continues; no guessed click is ever retried.
+
+`containerid.log` is a separate append-only JSONL file next to `leaporder.log` (that file is a
+rewritten JSON document, so appending to it would corrupt it). Each line has `t`, `gen`, `id`,
+`kind`, `title`, `predicted`, `match`, `inventory` and `confidence`; id `0` is recorded with
+`inventory: true` and never seeds. With `Save container id log` OFF the file is never opened.
+
+`Profile timings` also records QueueX points with `System.nanoTime()`: `q0` item use, `q1` open
+packet, `q2` contents applied, `q3` click attempt, `q4` click sent and `q5` prediction reconcile.
+The server's processing time is **not observable** and is reported as `server=unobserved`; the log
+therefore compares client send and inbound arrival only.
 
 ### Distance conditions
 
@@ -449,6 +493,7 @@ All under `config/leaputils/`:
 | `presets/mm7g.json` | The bundled MM7G preset |
 | `fastleap.json` | Optional Fast Leap rule pack override over the built-in pack |
 | `leaporder.log` | Observed Spirit Leap slot order per run, only if you enable the ordering log |
+| `containerid.log` | Append-only JSONL of observed server container ids, only if you enable it |
 | `pov-cache/` | Cached room-geometry bundles (downloaded or built locally) |
 
 ---
