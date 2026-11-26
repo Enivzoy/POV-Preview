@@ -1,5 +1,6 @@
 package me.enivzoy.leaputils
 
+import me.enivzoy.leaputils.pov.LeapOrderProbe
 import me.enivzoy.leaputils.pov.fastleap.ContainerCounter
 import me.enivzoy.leaputils.pov.fastleap.LeapOrderCache
 import me.enivzoy.leaputils.pov.fastleap.PrefireState
@@ -126,6 +127,31 @@ class PrefireStateTest {
         val second = LeapOrderCache.fingerprint(listOf("c", "B", "a"))
         assertEquals(first, second)
         assertTrue(first.isNotEmpty())
+    }
+
+    @Test
+    fun aNewRunMarkerStartsAFreshRecord() {
+        val cache = LeapOrderCache()
+        cache.beginRun(1, parties)
+        observe(cache)
+        observe(cache)
+        assertTrue(cache.validated())
+        // same party, next dungeon run: the old slot prediction must not carry over
+        assertNull(cache.beginRun(7, parties))
+        assertEquals("run-000007", cache.currentRunId)
+        assertFalse(cache.validated())
+        assertNull(cache.slotFor("uuid-a"))
+    }
+
+    @Test
+    fun appendingARunKeepsEarlierRecords() {
+        val first = mapOf("players" to mapOf("uuid-a" to listOf("[0]", "TANK")), "slotByUuid" to mapOf("uuid-a" to 11))
+        val existing: Map<String, Any> = linkedMapOf("run-000001" to first)
+        val merged = assertNotNull(LeapOrderProbe.merge(existing, "run-000002", mapOf("players" to emptyMap<String, Any>())))
+        assertEquals(setOf("run-000001", "run-000002"), merged.keys)
+        assertEquals(first, merged["run-000001"])
+        // a missing record is not a reason to rewrite the file
+        assertNull(LeapOrderProbe.merge(existing, "run-000003", null))
     }
 
     // ---- container predictor ----

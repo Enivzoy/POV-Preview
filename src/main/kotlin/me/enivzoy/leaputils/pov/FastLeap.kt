@@ -72,6 +72,8 @@ object FastLeap : Module(
     private var menuOpenedMs = 0L
     private var runIndex = 0
     private val leapOrderCache = LeapOrderCache()
+    private var observedScreen: Screen? = null
+    private var lastEmptyProbe = Int.MIN_VALUE
     private var prefireState: PrefireState? = null
     private var containerCounter = ContainerCounter()
     private val cooldownUntil = HashMap<String, Long>()
@@ -205,6 +207,10 @@ object FastLeap : Module(
         warningThrottle.clear()
         lastLeapedName = null
         hudLine = ""
+        runIndex = 0
+        leapOrderCache.invalidate()
+        containerCounter.reset()
+        prefireState = null
         super.onDisable()
     }
 
@@ -290,6 +296,8 @@ object FastLeap : Module(
         val pending = FastLeapState.request
         if (pending != null && !FastLeapState.isStale(pending.generation)) {
             pending.timing.t4 = System.nanoTime()
+            // the real menu arrived, that is the observed point the prefire line reports
+            if (pending.timing.l2 == null) pending.timing.l2 = pending.timing.t4
             menuOpenedMs = System.currentTimeMillis()
             tryExecute(container, pending.id)
             return
@@ -332,6 +340,13 @@ object FastLeap : Module(
             dispatchTimes = ArrayDeque()
             FastLeapState.bumpGeneration()
             firedThisScreen = null
+            // a new world is a new dungeon run: no slot or counter from the old one may survive
+            runIndex++
+            leapOrderCache.invalidate()
+            containerCounter.reset()
+            prefireState?.onWorldChange()
+            observedScreen = null
+            lastEmptyProbe = Int.MIN_VALUE
         }
         val container = runCatching { mc.gui.screen() }.getOrNull() as? AbstractContainerScreen<*>
         if (container == null || !isLeapScreen(container)) {
@@ -341,10 +356,13 @@ object FastLeap : Module(
             runScheduledClose()
             return
         }
+        // contents can arrive ticks after the screen, so the tick also probes the real menu
+        if ((leapOrderingDiagnostics || saveLeapOrdering) && observedScreen !== container) recordLeapOrder(container)
         val req = FastLeapState.request
         if (req != null && !FastLeapState.isStale(req.generation)) {
             if (req.timing.t4 == null) {
                 req.timing.t4 = System.nanoTime()
+                req.timing.l2 = req.timing.l2 ?: req.timing.t4
                 menuOpenedMs = System.currentTimeMillis()
             }
             tryExecute(container, req.id)
@@ -599,7 +617,12 @@ object FastLeap : Module(
     // prefire is inert on purpose: the click packet needs a state id that 26.3 never exposes
     // before the menu contents arrive, so the gate aborts and the normal path runs instead
     private fun tryPrefire(ctx: FastLeapContext) {
-        val st = prefireState ?: PrefireState(prefireDelayTicks.toInt()).also { prefireState = it }
+        // prefire is only ever allowed with the normal menu path kept as its fallback
+        if (!prefireFallbackToMenu) {
+            if (prefireDiagnostics) SpLog.info("prefire", "skipped: fallback to the normal menu is disabled")
+            return
+        }
+        val st = prefireState ?: PrefireState(prefireDelayTicks).also { prefireState = it }
         if (st.inFlight) {
             if (prefireDiagnostics) SpLog.info("prefire", "skipped: request ${st.prepared?.requestId} still in flight")
             return
@@ -619,9 +642,11 @@ object FastLeap : Module(
             orderingVerified = requireVerifiedSlotOrder && leapOrderCache.validated(),
             nowTick = tickCounter,
         )
-        if (prefireDiagnostics) {
+        if (prefireDiagnostics || profiling) {
             val why = prepared?.let { "armed container=${it.containerId} slot=${it.slot}" } ?: "aborted: ${st.failure}"
             SpLog.info("prefire", "$why (falling back to the normal menu path)")
+            // same shape as the normal path so the two lines can be compared side by side
+            SpLog.info("prefire", st.latency.summary())
         }
         // a prepared request would only arm the state machine, never send a packet
         if (prepared == null) st.reset()
@@ -750,18 +775,28 @@ object FastLeap : Module(
         raw.split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet()
 
     // learn the real menu order once per run, from the container itself, not from a name guess
+    // the run id belongs to the dungeon run, so every menu in it keeps the same record
     private fun recordLeapOrder(screen: AbstractContainerScreen<*>) {
+        // the same screen is observed once; contents arriving later only fill the first attempt
+        if (observedScreen === screen) return
         val roster = runCatching { DungeonUtils.leapTeammates }.getOrDefault(emptyList())
         val uuids = roster.mapNotNull { dp -> runCatching { OdinAccess.entityOf(dp)?.uuid?.toString() }.getOrNull() }
-        if (leapOrderCache.beginRun(++runIndex, uuids) == null) return
+        // no roster means no identity to anchor an observation to, so nothing is recorded
+        if (uuids.isEmpty()) return
+        leapOrderCache.beginRun(runIndex.coerceAtLeast(1), uuids)
         val classOf = { name: String ->
             roster.firstOrNull { it.name.equals(name, ignoreCase = true) }?.clazz?.name
         }
         val entries = LeapOrderProbe.scan(screen, classOf)
         if (entries.isEmpty()) {
-            if (leapOrderingDiagnostics) SpLog.info("leaporder", "menu ${screen.menu.containerId}: no profile heads yet")
+            // contents can land a tick after the screen, so this stays retryable and quiet
+            if (leapOrderingDiagnostics && lastEmptyProbe != screen.menu.containerId) {
+                lastEmptyProbe = screen.menu.containerId
+                SpLog.info("leaporder", "menu ${screen.menu.containerId}: no profile heads yet")
+            }
             return
         }
+        observedScreen = screen
         if (leapOrderingDiagnostics) {
             SpLog.info("leaporder", "menu ${screen.menu.containerId}: " + entries.joinToString(", ") { "${it.uuid}@${it.slot}/${it.clazz}" })
         }

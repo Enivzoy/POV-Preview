@@ -13,7 +13,8 @@ import java.nio.file.StandardCopyOption
 object LeapOrderProbe {
 
     private val gson = GsonBuilder().setPrettyPrinting().create()
-    private val dir: Path = FabricLoader.getInstance().configDir.resolve("leaputils")
+    // lazy so a unit test can call the pure merge without a fabric runtime
+    private val dir: Path by lazy { FabricLoader.getInstance().configDir.resolve("leaputils") }
     private const val MAX_BYTES = 1_000_000L
 
     fun scan(screen: AbstractContainerScreen<*>, classOf: (String) -> String?): List<LeapOrderCache.Entry> {
@@ -43,22 +44,27 @@ object LeapOrderProbe {
     fun write(cache: LeapOrderCache, entries: List<LeapOrderCache.Entry>): Boolean = runCatching {
         Files.createDirectories(dir)
         val file = dir.resolve("leaporder.log")
-        val existing = if (Files.exists(file) && Files.size(file) < MAX_BYTES) readRecords(file) else LinkedHashMap()
         val rec = cache.observe(entries) ?: return@runCatching false
-        val players = LinkedHashMap<String, List<String>>()
-        val slotByUuid = LinkedHashMap<String, Int>()
-        for (entry in rec.entries) {
-            players[entry.uuid] = listOf("[${entry.ordinal}]", entry.clazz)
-            slotByUuid[entry.uuid] = entry.slot
+        // rotate before reading, so a full log is never truncated in place
+        if (Files.exists(file) && Files.size(file) >= MAX_BYTES) {
+            Files.move(file, dir.resolve("leaporder.log.old"), StandardCopyOption.REPLACE_EXISTING)
         }
-        existing[rec.runId] = mapOf("players" to players, "slotByUuid" to slotByUuid)
+        val existing = if (Files.exists(file)) readRecords(file) else LinkedHashMap()
+        val merged = merge(existing, rec.runId, cache.logEntry()?.get(rec.runId)) ?: return@runCatching false
         // atomic: write beside it, then replace, so a crash cannot leave half a record
         val tmp = dir.resolve("leaporder.log.tmp")
-        Files.writeString(tmp, gson.toJson(existing))
+        Files.writeString(tmp, gson.toJson(merged))
         Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING)
         true
     }.getOrDefault(false)
 
+    // pure merge: an older run record is never dropped when the next run appends its own
+    fun merge(existing: Map<String, Any>, runId: String, record: Map<String, Any>?): Map<String, Any>? {
+        if (record == null) return null
+        val out = LinkedHashMap<String, Any>(existing)
+        out[runId] = record
+        return out
+    }
     private fun readRecords(file: Path): LinkedHashMap<String, Any> = runCatching {
         val type = com.google.gson.reflect.TypeToken.getParameterized(
             LinkedHashMap::class.java, String::class.java, Any::class.java

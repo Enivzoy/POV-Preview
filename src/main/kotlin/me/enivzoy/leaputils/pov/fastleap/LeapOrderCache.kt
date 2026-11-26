@@ -10,6 +10,7 @@ class LeapOrderCache(private val minObservations: Int = 2) {
     data class Record(val runId: String, val partyKey: String, val entries: List<Entry>)
 
     private var runId: String = ""
+    private var runIndex: Int = Int.MIN_VALUE
     private var partyKey: String = ""
     private var entries: List<Entry> = emptyList()
     private val observations = HashMap<String, MutableList<Map<String, Int>>>()
@@ -17,12 +18,17 @@ class LeapOrderCache(private val minObservations: Int = 2) {
     val active: Boolean
         get() = runId.isNotEmpty() && entries.isNotEmpty()
 
+    val currentRunId: String
+        get() = runId
+
     // a new run or a changed party changes the identity, an old mapping must never leak into it
     fun beginRun(index: Int, partyUuids: Collection<String>): Record? {
         val key = fingerprint(partyUuids)
-        if (runId.isNotEmpty() && key != partyKey) invalidate()
-        if (runId.isEmpty() || key != partyKey) {
+        // the run marker is part of the identity, so two runs of the same party stay separate
+        if (runId.isNotEmpty() && (key != partyKey || index != runIndex)) invalidate()
+        if (runId.isEmpty() || key != partyKey || index != runIndex) {
             runId = "run-%06d".format(index.coerceAtLeast(1))
+            runIndex = index
             partyKey = key
             entries = emptyList()
         }
@@ -72,6 +78,7 @@ class LeapOrderCache(private val minObservations: Int = 2) {
 
     fun invalidate() {
         runId = ""
+        runIndex = Int.MIN_VALUE
         partyKey = ""
         entries = emptyList()
         observations.clear()
