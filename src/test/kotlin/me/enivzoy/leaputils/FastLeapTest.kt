@@ -618,6 +618,28 @@ class FastLeapTest {
     }
 
     @Test
+    fun closeDeadlineIgnoresTheMissingTeleportResult() {
+        request()
+        FastLeapState.markDispatched(5_000_000L)
+        assertNotNull(FastLeapState.scheduleClose(5_000_000L, 1L, "screen"))
+        // no result, no close confirmation, still due at dispatch + 1 ms
+        assertEquals(6_000_000L, FastLeapState.closeDue(6_000_000L)?.deadlineNs)
+        // and it stays due while the request has no teleport acknowledgement
+        assertNull(FastLeapState.request?.timing?.closedNs)
+    }
+
+    @Test
+    fun closeOnlyTargetsTheOriginatingScreenInstance() {
+        request()
+        FastLeapState.markDispatched(3_000_000L)
+        val original = Any()
+        val token = assertNotNull(FastLeapState.scheduleClose(3_000_000L, 1L, original))
+        assertTrue(token.screen === original)
+        // a replacement screen is a different object and must not be closed by this token
+        assertFalse(token.screen === Any())
+    }
+
+    @Test
     fun readyLeapItemInHandAvoidsSwap() {
         val choice = FastLeapState.chooseItem(
             held = FastLeapState.HeldItem(3, "SPIRIT_LEAP"),
