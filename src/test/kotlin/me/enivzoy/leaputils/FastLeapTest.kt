@@ -63,8 +63,12 @@ class FastLeapTest {
         collectAll: Boolean = false,
         caseInsensitive: Boolean = true,
         fallbackLastLeaped: Boolean = false,
+        fallbackNearestLandmark: String? = null,
         menuOpen: Boolean = false,
         skipNotInMenu: Boolean = false,
+        ignoreSelf: Boolean = true,
+        preferredName: String? = null,
+        defaultRadius: Double = DEFAULT_RADIUS,
     ) = FastLeapContext(
         trigger = trigger,
         teammates = teammates,
@@ -84,8 +88,12 @@ class FastLeapTest {
         collectAll = collectAll,
         caseInsensitive = caseInsensitive,
         fallbackLastLeaped = fallbackLastLeaped,
+        fallbackNearestLandmark = fallbackNearestLandmark,
         menuOpen = menuOpen,
         skipNotInMenu = skipNotInMenu,
+        ignoreSelf = ignoreSelf,
+        preferredName = preferredName,
+        defaultRadius = defaultRadius,
     )
 
     private fun centre(box: RegionSpec): SpatialEvaluator.Position = SpatialEvaluator.Position(
@@ -994,5 +1002,106 @@ class FastLeapTest {
             ctx(teammates = listOf(tm("Alice", DungeonClass.HEALER, x = 6.5, y = 0.0, z = 0.0)), landmarks = planes),
         )
         assertIs<FastLeapResult.NoMatch>(outside)
+    }
+
+    // ---- configured default radius reaches position conditions ----
+
+    @Test
+    fun configuredDefaultRadiusAppliesToPositionConditions() {
+        val planes = mapOf("spot" to SpLandmark(0.0, 0.0, 0.0))
+        // no radius and no mode: the module default must decide, not the hardcoded constant
+        val rule = landmarkRule("near", "spot")
+        val atSeven = listOf(tm("Alice", DungeonClass.HEALER, x = 7.0, y = 0.0, z = 0.0))
+
+        assertIs<FastLeapResult.NoMatch>(FastLeapEvaluator.evaluate(listOf(rule), ctx(atSeven, landmarks = planes)))
+        assertIs<FastLeapResult.Plan>(
+            FastLeapEvaluator.evaluate(listOf(rule), ctx(atSeven, landmarks = planes, defaultRadius = 8.0)),
+        )
+    }
+
+    @Test
+    fun perConditionRadiusStillWinsOverTheDefault() {
+        val planes = mapOf("spot" to SpLandmark(0.0, 0.0, 0.0))
+        val cond = PositionCondition(subject = SpSubject.TARGET, landmarkName = "spot", radius = 2.0)
+        val rule = FastLeapRule(
+            id = "near",
+            name = "near",
+            target = TargetSpec(TargetSelectorType.FIRST_IN_MENU),
+            conditions = listOf(cond),
+        )
+        val atFive = listOf(tm("Alice", DungeonClass.HEALER, x = 5.0, y = 0.0, z = 0.0))
+        assertIs<FastLeapResult.NoMatch>(
+            FastLeapEvaluator.evaluate(listOf(rule), ctx(atFive, landmarks = planes, defaultRadius = 12.0)),
+        )
+        // the check itself honours the condition radius with a wide default passed in
+        val direct = SpatialEvaluator.check(
+            SpatialEvaluator.Position(5.0, 0.0, 0.0), planes["spot"], false, cond, 0.0, Double.MAX_VALUE, "spot", 12.0,
+        )
+        assertIs<SpatialEvaluator.Check.Fail>(direct)
+    }
+
+    @Test
+    fun pointRegionUsesTheConfiguredDefaultRadius() {
+        val planes = mapOf("spot" to SpLandmark(0.0, 0.0, 0.0))
+        val region = RegionSpec(type = RegionType.POINT, landmarkName = "spot")
+        val atSeven = SpatialEvaluator.Position(7.0, 0.0, 0.0)
+        assertFalse(SpatialEvaluator.insideRegion(atSeven, region, planes))
+        assertTrue(SpatialEvaluator.insideRegion(atSeven, region, planes, 8.0))
+    }
+
+    // ---- Ignore self is honoured end to end ----
+
+    @Test
+    fun ignoreSelfOffMakesYourselfSelectable() {
+        val self = tm("Me", DungeonClass.MAGE)
+        val nameRule = FastLeapRule(
+            id = "self",
+            name = "Self",
+            target = TargetSpec(TargetSelectorType.NAME, targetName = "Me"),
+        )
+        val classRule = FastLeapRule(
+            id = "selfclass",
+            name = "Self class",
+            target = TargetSpec(TargetSelectorType.CLASS, targetClass = DungeonClass.MAGE),
+        )
+
+        // default ON: the evaluator drops self even if the caller left it in the roster
+        assertIs<FastLeapResult.NoMatch>(FastLeapEvaluator.evaluate(listOf(nameRule), ctx(listOf(self), myName = "Me")))
+        assertIs<FastLeapResult.NoMatch>(FastLeapEvaluator.evaluate(listOf(classRule), ctx(listOf(self), myName = "Me")))
+
+        // OFF: self is a legitimate target
+        val byName = FastLeapEvaluator.evaluate(listOf(nameRule), ctx(listOf(self), myName = "Me", ignoreSelf = false))
+        assertEquals("Me", (byName as FastLeapResult.Plan).teammate.name)
+        val byClass = FastLeapEvaluator.evaluate(listOf(classRule), ctx(listOf(self), myName = "Me", ignoreSelf = false))
+        assertEquals("Me", (byClass as FastLeapResult.Plan).teammate.name)
+    }
+
+    @Test
+    fun preferredNameStillResolvesAsANameTarget() {
+        val rule = FastLeapRule(id = "n", name = "n", target = TargetSpec(TargetSelectorType.NAME))
+        // NAME fallback must not be self-excluded by its own preferredName
+        val res = FastLeapEvaluator.evaluate(
+            listOf(rule),
+            ctx(listOf(tm("Alice", DungeonClass.HEALER)), preferredName = "Alice"),
+        )
+        assertEquals("Alice", (res as FastLeapResult.Plan).teammate.name)
+    }
+
+    @Test
+    fun lastLeapedFallbackStillFallsBackToTheLandmark() {
+        val planes = mapOf("spot" to SpLandmark(0.0, 0.0, 0.0))
+        val res = FastLeapEvaluator.evaluate(
+            emptyList(),
+            ctx(
+                teammates = listOf(tm("Bob", DungeonClass.TANK, x = 1.0, y = 0.0, z = 0.0)),
+                lastLeapedName = "Gone",
+                fallbackLastLeaped = true,
+                fallbackNearestLandmark = "spot",
+                landmarks = planes,
+            ),
+            applyFallback = true,
+        )
+        assertEquals("Bob", (res as FastLeapResult.Plan).teammate.name)
+        assertEquals("Fallback nearest to spot", res.rule.name)
     }
 }

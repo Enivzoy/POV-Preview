@@ -27,7 +27,12 @@ object SpatialEvaluator {
             z >= box.minZ!! && z <= box.maxZ!!
     }
 
-    fun insideRegion(pos: Position, region: RegionSpec, landmarks: Map<String, SpLandmark>): Boolean {
+    fun insideRegion(
+        pos: Position,
+        region: RegionSpec,
+        landmarks: Map<String, SpLandmark>,
+        defaultRadius: Double = DEFAULT_RADIUS,
+    ): Boolean {
         return when (region.type) {
             RegionType.AABB -> insideAabb(pos, region)
             RegionType.POINT -> {
@@ -41,7 +46,7 @@ object SpatialEvaluator {
                     false
                 } else {
                     val cond = PositionCondition(landmarkName = region.landmarkName, radius = region.radius)
-                    check(pos, anchor, false, cond, 0.0, Double.MAX_VALUE, region.landmarkName) is Check.Pass
+                    check(pos, anchor, false, cond, 0.0, Double.MAX_VALUE, region.landmarkName, defaultRadius) is Check.Pass
                 }
             }
         }
@@ -57,6 +62,8 @@ object SpatialEvaluator {
         defaultMin: Double,
         defaultMax: Double,
         landmarkLabel: String?,
+        // the configured default radius, used when the condition defines neither radius nor mode
+        defaultRadius: Double = DEFAULT_RADIUS,
     ): Check {
         val x = pos.x
         val z = pos.z
@@ -83,8 +90,12 @@ object SpatialEvaluator {
             if (min < 0.0 || max < min) return Check.Fail("invalid interval ${fmt(min)}..${fmt(max)}")
             if (dist < min) return Check.Fail("distance ${fmt(dist)} < ${fmt(min)}")
             if (dist > max) return Check.Fail("distance ${fmt(dist)} > ${fmt(max)}")
-        } else if (dist > cond.legacyRadius) {
-            return Check.Fail("distance ${fmt(dist)} > ${fmt(cond.legacyRadius)}")
+        } else {
+            // explicit radius wins, then the mode's own radius, then the configured module default
+            val radius = cond.radius ?: cond.mode?.defaultRadius ?: defaultRadius
+            if (dist > radius) {
+                return Check.Fail("distance ${fmt(dist)} > ${fmt(radius)}")
+            }
         }
         return Check.Pass(dist, axes, if (landmarkLabel == null) "custom" else "landmark")
     }

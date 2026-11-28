@@ -4,6 +4,7 @@ import me.enivzoy.leaputils.pov.LeapOrderProbe
 import me.enivzoy.leaputils.pov.fastleap.ContainerCounter
 import me.enivzoy.leaputils.pov.fastleap.LeapOrderCache
 import me.enivzoy.leaputils.pov.fastleap.PrefireState
+import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -141,6 +142,51 @@ class PrefireStateTest {
         assertEquals("run-000007", cache.currentRunId)
         assertFalse(cache.validated())
         assertNull(cache.slotFor("uuid-a"))
+    }
+
+    @Test
+    fun runIndexZeroAndOneUseDistinctIds() {
+        val cache = LeapOrderCache()
+        cache.beginRun(0, parties)
+        assertEquals("run-000000", cache.currentRunId)
+        cache.beginRun(1, parties)
+        // the pre-world-change run must not collide with the first real run
+        assertEquals("run-000001", cache.currentRunId)
+    }
+
+    @Test
+    fun logReadKeepsIntegersAndRejectsCorruptFiles() {
+        val dir = Files.createTempDirectory("leaputils-log-test")
+        try {
+            val good = dir.resolve("good.json")
+            Files.writeString(
+                good,
+                "{\"run-000001\":{\"players\":{\"a\":[\"[0]\",\"TANK\"]},\"slotByUuid\":{\"a\":11}}}",
+            )
+            val loaded = assertNotNull(LeapOrderProbe.readRecords(good))
+            val record = loaded.getValue("run-000001") as Map<*, *>
+            val slot = (record["slotByUuid"] as Map<*, *>)["a"]
+            // a rewrite must keep 11, not 11.0
+            assertEquals(11, slot)
+            assertTrue(slot is Int)
+
+            val bad = dir.resolve("bad.json")
+            Files.writeString(bad, "{not json")
+            // unreadable is distinct from empty so the writer can quarantine it
+            assertNull(LeapOrderProbe.readRecords(bad))
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun observationHistoryStaysBounded() {
+        val cache = LeapOrderCache()
+        cache.beginRun(1, parties)
+        repeat(50) { observe(cache) }
+        // repeated agreement does not grow the evidence list without bound
+        assertTrue(cache.validated())
+        assertEquals(11, cache.slotFor("uuid-a"))
     }
 
     @Test
@@ -334,6 +380,25 @@ class PrefireStateTest {
         )
         assertFalse(state.fallbackRequired)
         assertEquals("stale generation", state.failure)
+    }
+
+    @Test
+    fun staleGenerationAfterCompletionResetsInsteadOfAborting() {
+        val state = PrefireState()
+        armed(state)
+        state.nextAction(101, 1_000_000L)
+        state.onClickSent(1_100_000L)
+        assertTrue(state.onResult(accepted = true, nowNs = 1_900_000L))
+        assertEquals(PrefireState.Phase.DONE, state.phase)
+
+        assertEquals(
+            PrefireState.Reconcile.STALE,
+            state.onMenuOpen(containerId = 7, generation = 4, nowNs = 2_000_000L),
+        )
+        // a completed leap is not retroactively marked aborted, and the next prepare is not blocked
+        assertEquals(PrefireState.Phase.IDLE, state.phase)
+        assertNull(state.failure)
+        assertNotNull(state.prepare(4, "uuid-a", 7, 42, 12, true, 200))
     }
 
     @Test

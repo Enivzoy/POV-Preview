@@ -2,7 +2,10 @@ package me.enivzoy.leaputils.pov.fastleap
 
 // shadow only: the server owns the counter, nothing here can allocate or change an id
 // every real open is authoritative and overwrites the local guess
-class ContainerIdPredictor(private val historyLimit: Int = 64) {
+class ContainerIdPredictor(historyLimit: Int = 64) {
+
+    // a negative limit would make the trim loop pull from an empty deque
+    private val historyLimit: Int = historyLimit.coerceAtLeast(0)
 
     enum class Confidence { UNKNOWN, SEEDED, PREDICTED, CONFIRMED, INVALID }
 
@@ -84,7 +87,8 @@ class ContainerIdPredictor(private val historyLimit: Int = 64) {
         }
         // an observed open always closes the tentative prediction, matched or not
         pending = null
-        val observation = Observation(generation, id, menuKind, inventory, expected?.predictedId, matched, atMs)
+        // record the prediction only while it belongs to this connection
+        val observation = Observation(generation, id, menuKind, inventory, expected?.takeIf { live }?.predictedId, matched, atMs)
         record(observation)
         return Result(observation, confidence, mismatch, seeded)
     }

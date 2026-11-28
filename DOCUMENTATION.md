@@ -277,7 +277,7 @@ or an inline AABB/point object.
 
 **Target and position**
 - Leap mode **By class**, case-insensitive names **ON**
-- Default radius **6.0**, horizontal only **OFF** (3D is the default; per-condition overrides win)
+- Default radius **6.0** (raise it to 8.0 to restore the pre-setting fallback), horizontal only **OFF** (3D is the default; per-condition overrides win)
 - Skip dead **ON**, skip not-in-menu **ON**, skip last leaped **OFF**
 - Blacklist / whitelist **empty** (comma-separated names, applied before target selection)
 - Collect all and pick best **OFF**
@@ -322,7 +322,9 @@ the aborted prediction and runs the normal menu path; it never sends a packet.
 `{"run-000001": {"players": {"<uuid>": ["[0]", "TANK"]}, "slotByUuid": {"<uuid>": 11}}}`. The
 `[n]` value is the ordinal among the observed teammate heads and `slotByUuid` is the absolute
 container slot, kept separate so an ordinal is never mistaken for a slot. The file is local only,
-atomic (temp file then replace), rotated to `leaporder.log.old` at 1 MB, preserves earlier runs,
+atomic (temp file then replace), rotated to numbered `leaporder.log.N.old` side archives at 1 MB (an
+unreadable log is moved to `leaporder.log.N.corrupt` instead of being overwritten), preserves
+earlier runs,
 and is never uploaded. One observation never authorises a prediction: two menus in the same run
 must agree before `LeapOrderCache.validated()` is true. A new world, a new dungeon run or a changed
 party fingerprint invalidates the slot mapping, so `run-000002` never inherits `run-000001`'s
@@ -374,7 +376,8 @@ prediction and the normal path continues; no guessed click is ever retried.
 `containerid.log` is a separate append-only JSONL file next to `leaporder.log` (that file is a
 rewritten JSON document, so appending to it would corrupt it). Each line has `t`, `gen`, `id`,
 `kind`, `title`, `predicted`, `match`, `inventory` and `confidence`; id `0` is recorded with
-`inventory: true` and never seeds. With `Save container id log` OFF the file is never opened.
+`inventory: true` and never seeds. With `Save container id log` OFF the file is never opened. At
+1 MB the file is rotated to numbered `containerid.log.N.old` side archives.
 
 `Profile timings` also records QueueX points with `System.nanoTime()`: `q0` item use, `q1` open
 packet, `q2` contents applied, `q3` click attempt, `q4` click sent and `q5` prediction reconcile.

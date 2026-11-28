@@ -1,5 +1,6 @@
 package me.enivzoy.leaputils
 
+import me.enivzoy.leaputils.pov.ContainerIdLog
 import me.enivzoy.leaputils.pov.fastleap.ContainerIdPredictor
 import me.enivzoy.leaputils.pov.fastleap.ContainerIdPredictor.Confidence
 import kotlin.test.Test
@@ -152,6 +153,25 @@ class ContainerIdPredictorTest {
     }
 
     @Test
+    fun negativeHistoryLimitNeverThrows() {
+        val p = ContainerIdPredictor(historyLimit = -1)
+        p.observe(5, chest, 0L, 0L)
+        // a negative cap is clamped to zero, not fed to the trim loop as an impossible target
+        assertEquals(0, p.observations().size)
+    }
+
+    @Test
+    fun aStalePredictionIsNotRecordedAsTheExpectedId() {
+        val p = seeded(41)
+        p.predictNext(1L, leap, 0L, 5L)
+        p.onConnection(1)
+        val res = p.observe(42, leap, 1L, 1L)
+        // the pending prediction belonged to the old connection
+        assertNull(res.observation.predictedId)
+        assertFalse(res.matched)
+    }
+
+    @Test
     fun aFreshPredictionCannotReuseThePreviousConfirmation() {
         val p = seeded(41)
         p.predictNext(1L, leap, 0L, 5L)
@@ -160,5 +180,15 @@ class ContainerIdPredictorTest {
         p.predictNext(2L, leap, 2L, 5L)
         assertEquals(ContainerIdPredictor.NO_REQUEST, p.lastConfirmedRequestId)
         assertNotNull(p.pending)
+    }
+
+    @Test
+    fun theLogLineKeepsThePredictedKeyWhenThereWasNoPrediction() {
+        val p = seeded(41)
+        val res = p.observe(42, leap, 1L, 1L)
+        val line = ContainerIdLog.encode(0, leap, "Spirit Leap", res)
+        // serializeNulls: a missing prediction is an explicit null, the key never disappears
+        assertTrue(line.contains("\"predicted\":null"), line)
+        assertTrue(line.contains("\"id\":42"), line)
     }
 }

@@ -146,7 +146,8 @@ class PrefireState(private val delayTicks: Int = 1, private val timeoutTicks: Lo
     fun onMenuOpen(containerId: Int, generation: Long, nowNs: Long): Reconcile {
         val p = prepared ?: return Reconcile.NOT_READY
         if (generation != p.generation) {
-            abort("stale generation", fallback = false)
+            // a finished or already aborted request is stale but not a new failure to record
+            if (inFlight) abort("stale generation", fallback = false) else reset()
             return Reconcile.STALE
         }
         if (phase == Phase.CLICK_SENT || phase == Phase.RECONCILED) {

@@ -16,6 +16,7 @@ object LeapOrderProbe {
     // lazy so a unit test can call the pure merge without a fabric runtime
     private val dir: Path by lazy { FabricLoader.getInstance().configDir.resolve("leaputils") }
     private const val MAX_BYTES = 1_000_000L
+    private val lock = Any()
 
     fun scan(screen: AbstractContainerScreen<*>, classOf: (String) -> String?): List<LeapOrderCache.Entry> {
         val out = ArrayList<LeapOrderCache.Entry>()
@@ -41,22 +42,34 @@ object LeapOrderProbe {
         return out.sortedBy { it.slot }.mapIndexed { index, entry -> entry.copy(ordinal = index) }
     }
 
-    fun write(cache: LeapOrderCache, entries: List<LeapOrderCache.Entry>): Boolean = runCatching {
-        Files.createDirectories(dir)
-        val file = dir.resolve("leaporder.log")
-        val rec = cache.observe(entries) ?: return@runCatching false
-        // rotate before reading, so a full log is never truncated in place
-        if (Files.exists(file) && Files.size(file) >= MAX_BYTES) {
-            Files.move(file, dir.resolve("leaporder.log.old"), StandardCopyOption.REPLACE_EXISTING)
+    fun write(cache: LeapOrderCache, entries: List<LeapOrderCache.Entry>): Boolean = synchronized(lock) {
+        val rec = cache.observe(entries) ?: return@synchronized false
+        runCatching {
+            Files.createDirectories(dir)
+            val file = dir.resolve("leaporder.log")
+            // rotate before reading, so a full log is never truncated in place
+            if (Files.exists(file) && Files.size(file) >= MAX_BYTES) rotate(file)
+            val existing: LinkedHashMap<String, Any> = if (Files.exists(file)) {
+                // an unreadable log is preserved as a side archive instead of being overwritten
+                readRecords(file) ?: run {
+                    val kept = quarantine(file)
+                    SpLog.warn("leaporder", "unreadable $file moved to $kept; starting a new record")
+                    LinkedHashMap()
+                }
+            } else {
+                LinkedHashMap()
+            }
+            val merged = merge(existing, rec.runId, cache.logEntry()?.get(rec.runId)) ?: return@runCatching false
+            // atomic: write beside it, then replace, so a crash cannot leave half a record
+            val tmp = dir.resolve("leaporder.log.tmp")
+            Files.writeString(tmp, gson.toJson(merged))
+            Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING)
+            true
+        }.getOrElse {
+            SpLog.warn("leaporder", "write failed: ${it.message ?: it.javaClass.simpleName}")
+            false
         }
-        val existing = if (Files.exists(file)) readRecords(file) else LinkedHashMap()
-        val merged = merge(existing, rec.runId, cache.logEntry()?.get(rec.runId)) ?: return@runCatching false
-        // atomic: write beside it, then replace, so a crash cannot leave half a record
-        val tmp = dir.resolve("leaporder.log.tmp")
-        Files.writeString(tmp, gson.toJson(merged))
-        Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING)
-        true
-    }.getOrDefault(false)
+    }
 
     // pure merge: an older run record is never dropped when the next run appends its own
     fun merge(existing: Map<String, Any>, runId: String, record: Map<String, Any>?): Map<String, Any>? {
@@ -65,10 +78,50 @@ object LeapOrderProbe {
         out[runId] = record
         return out
     }
-    private fun readRecords(file: Path): LinkedHashMap<String, Any> = runCatching {
+
+    // numbered side archives keep the older audit history instead of overwriting one `.old`
+    private fun rotate(file: Path) {
+        var n = 1
+        var target = file.resolveSibling("${file.fileName}.$n.old")
+        while (Files.exists(target)) {
+            n++
+            target = file.resolveSibling("${file.fileName}.$n.old")
+        }
+        Files.move(file, target, StandardCopyOption.REPLACE_EXISTING)
+    }
+
+    private fun quarantine(file: Path): Path {
+        var n = 1
+        var target = file.resolveSibling("${file.fileName}.$n.corrupt")
+        while (Files.exists(target)) {
+            n++
+            target = file.resolveSibling("${file.fileName}.$n.corrupt")
+        }
+        Files.move(file, target, StandardCopyOption.REPLACE_EXISTING)
+        return target
+    }
+
+    // null means the file exists but could not be parsed, which must never look like "empty"
+    // internal so the number round-trip can be tested without a fabric runtime
+    internal fun readRecords(file: Path): LinkedHashMap<String, Any>? = runCatching {
+        val text = Files.readString(file)
+        // a blank file is an empty log, not a corrupt one
+        if (text.isBlank()) return@runCatching LinkedHashMap()
         val type = com.google.gson.reflect.TypeToken.getParameterized(
             LinkedHashMap::class.java, String::class.java, Any::class.java
         ).type
-        gson.fromJson<LinkedHashMap<String, Any>>(Files.readString(file), type) ?: LinkedHashMap()
-    }.getOrDefault(LinkedHashMap())
+        val parsed: LinkedHashMap<String, Any>? = gson.fromJson(text, type)
+            ?: return@runCatching null
+        normalizeNumbers(parsed) as LinkedHashMap<String, Any>
+    }.getOrNull()
+
+    // Gson parses every number as a Double, so a rewrite would turn slot 11 into 11.0
+    private fun normalizeNumbers(value: Any?): Any? = when (value) {
+        is Map<*, *> -> LinkedHashMap<String, Any?>().apply {
+            for ((k, v) in value) if (k is String) put(k, normalizeNumbers(v))
+        }
+        is List<*> -> value.map { normalizeNumbers(it) }
+        is Double -> if (value % 1.0 == 0.0 && value >= Int.MIN_VALUE && value <= Int.MAX_VALUE) value.toInt() else value
+        else -> value
+    }
 }

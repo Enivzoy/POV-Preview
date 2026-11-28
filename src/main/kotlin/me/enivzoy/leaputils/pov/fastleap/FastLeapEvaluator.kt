@@ -119,7 +119,8 @@ object FastLeapEvaluator {
 
     // nearest teammate to a configured landmark, used when no rule matched
     private fun fallback(ctx: FastLeapContext): FastLeapResult.Plan? {
-        if (ctx.fallbackLastLeaped) return lastLeapedFallback(ctx)
+        // repeat the last target when possible, otherwise still try the nearby landmark
+        if (ctx.fallbackLastLeaped) lastLeapedFallback(ctx)?.let { return it }
         val name = ctx.fallbackNearestLandmark?.trim().orEmpty()
         if (name.isEmpty()) return null
         val lm = ctx.landmarks[name] ?: return null
@@ -193,7 +194,7 @@ object FastLeapEvaluator {
             if (!rule.selfRegion.complete) return Gate.Fail("self region is incomplete")
             val pos = SpatialEvaluator.selfPosition(ctx.myX, ctx.myY, ctx.myZ)
             if (!pos.known) return Gate.Fail("position unknown")
-            if (!SpatialEvaluator.insideRegion(pos, rule.selfRegion, ctx.landmarks)) {
+            if (!SpatialEvaluator.insideRegion(pos, rule.selfRegion, ctx.landmarks, ctx.defaultRadius)) {
                 return Gate.Fail("you are outside ${rule.name}'s region")
             }
         }
@@ -201,7 +202,7 @@ object FastLeapEvaluator {
             val pos = SpatialEvaluator.selfPosition(ctx.myX, ctx.myY, ctx.myZ)
             // never leap on an unknown position, the exclusions could not be checked
             if (!pos.known) return Gate.Fail("position unknown")
-            if (rule.excludeRegions.any { it.complete && SpatialEvaluator.insideRegion(pos, it, ctx.landmarks) }) {
+            if (rule.excludeRegions.any { it.complete && SpatialEvaluator.insideRegion(pos, it, ctx.landmarks, ctx.defaultRadius) }) {
                 return Gate.Fail("you are inside an excluded region for ${rule.name}")
             }
         }
@@ -223,7 +224,6 @@ object FastLeapEvaluator {
             if (tm.clazz == DungeonClass.EMPTY) return@filter false
             // never leap to self, even if the caller forgot to strip it
             if (ctx.ignoreSelf && ctx.myName != null && key == ctx.key(ctx.myName)) return@filter false
-            if (key == ctx.key(ctx.preferredName ?: "")) return@filter false
             if (ctx.blacklist.any { ctx.key(it) == key }) return@filter false
             if (ctx.whitelist.isNotEmpty() && ctx.whitelist.none { ctx.key(it) == key }) return@filter false
             if (ctx.skipLastLeaped && lastKey != null && key == lastKey) return@filter false
@@ -305,7 +305,9 @@ object FastLeapEvaluator {
             // a cond with neither point nor landmark is a pure gate, nothing to measure
             if (anchor == null) continue
             val horizontal = cond.horizontal ?: ctx.defaultHorizontal
-            when (val res = SpatialEvaluator.check(pos, anchor, horizontal, cond, ctx.defaultErrorMin, ctx.defaultErrorMax, label)) {
+            when (val res = SpatialEvaluator.check(
+                pos, anchor, horizontal, cond, ctx.defaultErrorMin, ctx.defaultErrorMax, label, ctx.defaultRadius,
+            )) {
                 is SpatialEvaluator.Check.Fail -> return Conditions.Fail(res.reason)
                 is SpatialEvaluator.Check.Pass -> {
                     lastDist = res.distance

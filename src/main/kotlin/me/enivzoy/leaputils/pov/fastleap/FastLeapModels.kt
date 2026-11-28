@@ -53,11 +53,10 @@ data class PositionCondition(
     val radius: Double? = null,
 ) {
     val hasCustomPoint: Boolean get() = customX != null && customZ != null
-    val legacyRadius: Double get() = radius ?: mode?.defaultRadius ?: DEFAULT_RADIUS
     val hasErrorInterval: Boolean get() = errorMinDistance != null || errorMaxDistance != null
 }
 
-// spec default for FastLeap rules, Savepoint's own SpMode radii stay untouched
+// last-resort fallback when no configured default radius is available, Savepoint's own SpMode radii stay untouched
 const val DEFAULT_RADIUS = 6.0
 
 enum class FastLeapTriggerSource { CLICK, MENU_OPEN, KEYBIND, COMMAND }

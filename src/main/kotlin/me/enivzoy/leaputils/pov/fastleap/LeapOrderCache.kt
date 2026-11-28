@@ -27,7 +27,7 @@ class LeapOrderCache(private val minObservations: Int = 2) {
         // the run marker is part of the identity, so two runs of the same party stay separate
         if (runId.isNotEmpty() && (key != partyKey || index != runIndex)) invalidate()
         if (runId.isEmpty() || key != partyKey || index != runIndex) {
-            runId = "run-%06d".format(index.coerceAtLeast(1))
+            runId = "run-%06d".format(index.coerceAtLeast(0))
             runIndex = index
             partyKey = key
             entries = emptyList()
@@ -52,6 +52,8 @@ class LeapOrderCache(private val minObservations: Int = 2) {
         // a differing layout restarts the evidence, it never inherits the previous confidence
         if (list.isNotEmpty() && list.last() != slots) list.clear()
         list.add(slots)
+        // only the latest agreeing observations matter, so a long run cannot grow this forever
+        while (list.size > minObservations.coerceAtLeast(1)) list.removeAt(0)
         return record()
     }
 

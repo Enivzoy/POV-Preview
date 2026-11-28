@@ -757,7 +757,9 @@ object FastLeap : Module(
         val uuid = runCatching { OdinAccess.entityOf(resolveTarget(plan.teammate.name) ?: return)?.uuid?.toString() }.getOrNull()
         val slot = uuid?.let { leapOrderCache.slotFor(it) }
         // the slot gate cannot be weakened by a setting: an unvalidated order never predicts
-        val orderingVerified = leapOrderCache.validated() && (requireVerifiedSlotOrder || slot != null)
+        // with the hard gate on, a confirmed uuid->slot mapping is required; with it off the
+        // state machine still refuses a missing slot, so no packet can ever be guessed
+        val orderingVerified = if (requireVerifiedSlotOrder) leapOrderCache.validated() && slot != null else true
         // no verified state id exists client side, so prepare always aborts here
         val prepared = st.prepare(
             generation = FastLeapState.generation,
@@ -830,16 +832,20 @@ object FastLeap : Module(
         val leapScreen = screen?.takeIf { isLeapScreen(it) }
         if (pauseOnGui && screen != null && leapScreen == null) return null
         val myName = runCatching { DungeonUtils.currentDungeonPlayer.name }.getOrNull()
+        val myKey = myName?.let { FastLeapEvaluator.nameKey(it) }
         val roster = runCatching { DungeonUtils.leapTeammates }.getOrDefault(emptyList())
+        // Ignore self only removes the local player; with it off, self stays targetable
         val teammates = roster
-            .filter { myName == null || FastLeapEvaluator.nameKey(it.name) != FastLeapEvaluator.nameKey(myName) }
+            .filter { !ignoreSelf || myKey == null || FastLeapEvaluator.nameKey(it.name) != myKey }
             .map { dp ->
                 val e = runCatching { OdinAccess.entityOf(dp) }.getOrNull()
                 val inMenu = leapScreen != null && OdinAccess.isLeapAvailable(dp, leapScreen)
                 SpTmate(dp.name, dp.clazz, dp.isDead, inMenu, e?.x, e?.y, e?.z)
             }
-        if (pauseOnSolo && teammates.size < 2) {
-            warnSolo(teammates.size)
+        // the solo guard counts the party, never the local player, whatever Ignore self says
+        val partySize = roster.count { myKey == null || FastLeapEvaluator.nameKey(it.name) != myKey }
+        if (pauseOnSolo && partySize < 2) {
+            warnSolo(partySize)
             return null
         }
         val myClass = runCatching { DungeonUtils.currentDungeonPlayer.clazz }.getOrNull()
@@ -869,7 +875,8 @@ object FastLeap : Module(
             doorOpener = if (!inBoss && doorOpenerLeap && !(disableAfterBloodOpen && runCatching { DungeonUtils.bloodDone }.getOrDefault(false))) OdinAccess.findClosestToWitherDoor()?.name else null,
             ignorePhaseGates = ignorePhaseGates,
             preferredClass = if (leapMode == LeapMode.CLASS) myClass else null,
-            preferredName = if (leapMode == LeapMode.NAME) myName else null,
+            // the self-name fallback only makes sense while self is excluded
+            preferredName = if (leapMode == LeapMode.NAME && ignoreSelf) myName else null,
             fallbackNearestLandmark = if (fallbackMode == FallbackMode.NEAREST_TO) fallbackLandmark else null,
             defaultErrorMin = Savepoint.errorMinDistance,
             defaultErrorMax = Savepoint.errorMaxDistance,
@@ -909,7 +916,7 @@ object FastLeap : Module(
         val uuids = roster.mapNotNull { dp -> runCatching { OdinAccess.entityOf(dp)?.uuid?.toString() }.getOrNull() }
         // no roster means no identity to anchor an observation to, so nothing is recorded
         if (uuids.isEmpty()) return
-        leapOrderCache.beginRun(runIndex.coerceAtLeast(1), uuids)
+        leapOrderCache.beginRun(runIndex, uuids)
         val classOf = { name: String ->
             roster.firstOrNull { it.name.equals(name, ignoreCase = true) }?.clazz?.name
         }
