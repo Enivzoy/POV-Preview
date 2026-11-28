@@ -1,6 +1,8 @@
 package me.enivzoy.leaputils.pov.fastleap
 
 import com.odtheking.odin.utils.skyblock.dungeon.DungeonClass
+import me.enivzoy.leaputils.pov.SpCond
+import me.enivzoy.leaputils.pov.SpSubject
 
 // quoi's f7 boxes, inclusive on every face, see LeapSettings.kt + impl/FastLeap.kt
 object FastLeapDefaults {
@@ -159,6 +161,22 @@ object FastLeapDefaults {
             phase = 3,
             stage = 4,
             target = TargetSpec(TargetSelectorType.FIRST_IN_MENU),
+        ),
+        FastLeapRule(
+            id = "mage-at-acacia",
+            name = "Mage at acacia",
+            // template only: the landmark is the user's to capture, so it ships off
+            enabled = false,
+            priority = 500,
+            target = TargetSpec(TargetSelectorType.CLASS, targetClass = DungeonClass.MAGE),
+            conditions = listOf(
+                PositionCondition(
+                    subject = SpSubject.TARGET,
+                    landmarkName = "acacia",
+                    errorMinDistance = SpCond.DEFAULT_ERROR_MIN,
+                    errorMaxDistance = SpCond.DEFAULT_ERROR_MAX,
+                ),
+            ),
         ),
     )
 

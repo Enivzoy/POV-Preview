@@ -16,6 +16,20 @@ object FastLeapState {
         var dispatchedNs: Long? = null,
         var closedNs: Long? = null,
         var failure: String? = null,
+        // prefire comparison points, monotonic ns like the normal path
+        var l0: Long? = null,
+        var l1: Long? = null,
+        var l2: Long? = null,
+        var l3: Long? = null,
+        var l4: Long? = null,
+        // queuex points: q0 use-item send, q1 open packet, q2 content packet,
+        // q3 click attempt, q4 click sent, q5 prediction reconcile
+        var q0: Long? = null,
+        var q1: Long? = null,
+        var q2: Long? = null,
+        var q3: Long? = null,
+        var q4: Long? = null,
+        var q5: Long? = null,
     )
 
     data class Request(
@@ -32,6 +46,8 @@ object FastLeapState {
         val axes: String,
         val timing: Timing,
         val restoreSlot: Int? = null,
+        // "normal" or "prefire", so the same log can compare both attempts
+        val path: String = "normal",
     )
 
     data class CloseToken(
@@ -99,6 +115,7 @@ object FastLeapState {
         axes: String,
         t0: Long,
         restoreSlot: Int? = null,
+        path: String = "normal",
     ): Request {
         val req = Request(
             id = nextId++,
@@ -114,6 +131,7 @@ object FastLeapState {
             axes = axes,
             timing = Timing(t0),
             restoreSlot = restoreSlot,
+            path = path,
         )
         request = req
         dispatched = false
@@ -158,6 +176,8 @@ object FastLeapState {
     // one-shot close: deadline is dispatch + delay, never a later result
     fun scheduleClose(nowNs: Long, delayMs: Long, screen: Any?): CloseToken? {
         val req = request ?: return null
+        // a close only ever follows a dispatched teammate click
+        if (!dispatched) return null
         if (closeToken != null) return null
         val token = CloseToken(req.id, req.generation, screen, nowNs, nowNs + delayMs * 1_000_000L)
         closeToken = token
@@ -172,7 +192,10 @@ object FastLeapState {
     fun consumeClose(nowNs: Long = -1L): CloseToken? {
         val token = closeToken ?: return null
         closeToken = null
-        if (nowNs >= 0) request?.timing?.closedNs = nowNs
+        if (nowNs >= 0) {
+            request?.timing?.closedNs = nowNs
+            request?.timing?.l3 = nowNs
+        }
         return token
     }
 
@@ -213,12 +236,18 @@ object FastLeapState {
 
     fun summary(req: Request): String {
         val t = req.timing
-        fun f(v: Double?): String = v?.let { String.format("%.1f", it) } ?: "-"
-        return "request=${req.id} rule=${req.ruleId} target=${req.targetName} source=${req.source.name.lowercase()} " +
+        fun f(v: Double?): String = v?.let { String.format(java.util.Locale.ROOT, "%.1f", it) } ?: "-"
+        return "request=${req.id} path=${req.path} rule=${req.ruleId} target=${req.targetName} source=${req.source.name.lowercase()} " +
             "item=${req.itemId.ifEmpty { "-" }} swapped=${req.swapped} failed=${t.failure ?: "-"} " +
             "ms context=${f(elapsedMs(t.t0, t.t1))} evaluate=${f(elapsedMs(t.t1, t.t2))} " +
             "item=${f(elapsedMs(t.t2, t.t3))} menuOpen=${f(elapsedMs(t.t3, t.t4))} " +
             "menuPopulate=${f(elapsedMs(t.t4, t.t5))} click=${f(elapsedMs(t.t5, t.t6))} " +
-            "totalToClick=${f(elapsedMs(t.t0, t.t6))}"
+            "totalToClick=${f(elapsedMs(t.t0, t.t6))} " +
+            "latency useItemToClick=${f(elapsedMs(t.l0, t.l1))} menuResponse=${f(elapsedMs(t.l0, t.l2))} " +
+            "clickLead=${f(elapsedMs(t.l1, t.l2))} dispatchToClose=${f(elapsedMs(t.l1, t.l3))} " +
+            "result=${f(elapsedMs(t.l1, t.l4))} total=${f(elapsedMs(t.l0, t.l4))} " +
+            "queue useItemToOpen=${f(elapsedMs(t.q0, t.q1))} openToContent=${f(elapsedMs(t.q1, t.q2))} " +
+            "contentToClick=${f(elapsedMs(t.q2, t.q3))} click=${f(elapsedMs(t.q3, t.q4))} " +
+            "reconcile=${f(elapsedMs(t.q1, t.q5))} server=unobserved"
     }
 }

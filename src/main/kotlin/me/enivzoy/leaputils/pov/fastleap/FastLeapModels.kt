@@ -12,7 +12,8 @@ data class TargetSpec(
     val targetClass: DungeonClass? = null,
     val targetName: String? = null,
     val landmarkName: String? = null,
-    val radius: Double = 8.0,
+    // null keeps the module default radius setting
+    val radius: Double? = null,
 )
 
 enum class RegionType { AABB, POINT }
@@ -44,16 +45,19 @@ data class PositionCondition(
     val customX: Double? = null,
     val customY: Double? = null,
     val customZ: Double? = null,
-    val horizontal: Boolean = false,
+    // null falls back to the module wide 3D default, per cond overrides win
+    val horizontal: Boolean? = null,
     val errorMinDistance: Double? = null,
     val errorMaxDistance: Double? = null,
     val mode: SpMode? = null,
     val radius: Double? = null,
 ) {
     val hasCustomPoint: Boolean get() = customX != null && customZ != null
-    val legacyRadius: Double get() = radius ?: mode?.defaultRadius ?: 8.0
     val hasErrorInterval: Boolean get() = errorMinDistance != null || errorMaxDistance != null
 }
+
+// last-resort fallback when no configured default radius is available, Savepoint's own SpMode radii stay untouched
+const val DEFAULT_RADIUS = 6.0
 
 enum class FastLeapTriggerSource { CLICK, MENU_OPEN, KEYBIND, COMMAND }
 

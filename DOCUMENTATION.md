@@ -197,7 +197,267 @@ Once you leap for a cell, that step is **consumed** (marked done) so it won't re
 
 ---
 
-## 5. Commands
+## 5. Fast Leap - click to leap with rules
+
+Fast Leap is the click-driven cousin of Savepoint. You hold a Spirit Leap / Infinite Spirit Leap
+item and left click: the mod evaluates an ordered rule list against the current dungeon state and,
+if one rule matches, picks a teammate, clicks them in the leap menu, and (by default) closes the
+menu about 1 ms after the click is dispatched. It never waits for the teleport to land.
+Savepoint still exists for the "open the menu yourself and follow the guide" workflow.
+
+### How a rule is evaluated
+
+1. Rules are ordered by `priority` descending; equal priorities keep their order in the list.
+2. Each rule first passes its gates: trigger, location (boss/clear), floor, phase/section/stage,
+   self-region and excluded-region checks. A failed gate falls through to the next rule.
+3. The first rule that picks a valid target **and** passes its conditions wins. Failed rules never
+   block later ones.
+4. With `Collect all and pick best` ON, every matching rule is evaluated and the one with the
+   lowest measured distance wins (ties keep list order). It is OFF by default, so the default is
+   still first-match-wins.
+5. If nothing matched and `Fallback` is set, the fallback runs: nearest teammate to a landmark,
+   or the last teammate you leaped to (`LAST_LEAPED`). `LAST_LEAPED` is an explicit request to
+   repeat that target, so it still works when `Skip last leaped` is ON.
+
+Target selection never guesses a position. A rule with a landmark condition fails with
+`missing landmark <name>` until you capture it.
+
+### The rule JSON and the config override
+
+On first run the built-in pack is used. To customise, create
+`config/leaputils/fastleap.json`. It fully replaces the built-in pack when it parses and has at
+least one rule:
+
+```json
+{
+  "disabled": ["s4"],
+  "rules": [
+    {
+      "id": "mage-at-acacia",
+      "name": "Mage at acacia",
+      "enabled": true,
+      "priority": 500,
+      "inBoss": true,
+      "targetType": "CLASS",
+      "targetClass": "MAGE",
+      "conditions": [
+        { "subject": "TARGET", "landmark": "acacia", "errorMinDistance": 3.0, "errorMaxDistance": 15.0 }
+      ]
+    }
+  ]
+}
+```
+
+Fields: `id`, `name`, `enabled`, `priority`, `phase` (chat quoi phase 1-5), `phaseAnyOf`,
+`phaseAt` (position-derived phase), `stage`, `section` (Goldor 1-5), `inBoss`, `triggers`
+(`CLICK`, `MENU_OPEN`, `KEYBIND`, `COMMAND`), `targetType`
+(`NAME`, `CLASS`, `NEAREST_LANDMARK`, `FIRST_IN_MENU`, `DOOR_OPENER`), `targetClass`, `targetName`,
+`landmark`, `radius`, `selfRegion`, `excludeRegions`, `conditions`. Regions can be a built-in id
+(`yellow_pad`, `purple_pad`, `between_pads`, `middle_platform`, `crystal_a`, `crystal_b`, `i4_spot`)
+or an inline AABB/point object.
+
+`disabled` is the list `/leaputils fastleap toggle <id>` edits. `/leaputils fastleap list` prints
+`on`/`off` per rule.
+
+### Settings (grouped, with defaults)
+
+**Triggers**
+- Left click **ON**, only while holding leap **ON**, require sneak **OFF**, cancel on no-match **OFF**
+- On menu open **OFF**, open delay **0 ms**
+- Trigger debounce **250 ms**, max leaps per second **2**
+- Keybind **unbound**, `Leap now` action runs the same evaluation
+
+**Allowed contexts**
+- Floors **F7 + M7**
+- Locations **Boss + Clear**
+- Ignore phase gates **OFF**
+- Pause when GUI open **ON**, when dead **ON**, when solo or 1 teammate **ON**
+- Only while holding leap **ON**, auto swap **ON**, swap back **OFF**, respect cooldown **ON**
+- Door opener leap **OFF**, disable after Blood open **ON**
+- Ignore self **ON**
+
+**Target and position**
+- Leap mode **By class**, case-insensitive names **ON**
+- Default radius **6.0** (raise it to 8.0 to restore the pre-setting fallback), horizontal only **OFF** (3D is the default; per-condition overrides win)
+- Skip dead **ON**, skip not-in-menu **ON**, skip last leaped **OFF**
+- Blacklist / whitelist **empty** (comma-separated names, applied before target selection)
+- Collect all and pick best **OFF**
+- Fallback **NOTHING**, fallback landmark **empty**
+- Unknown position always **fails**; there is no "guess" mode
+- Map fallback is **not implemented** (no verified XZ source in Odin on this MC version)
+
+**Feedback**
+- Feedback **errors only**, dry run **OFF**, profile timings **OFF**
+- HUD target line **OFF**, sound **OFF**
+- Repeated warnings are throttled to once per rule/reason per 5 s
+- Close GUI after teammate click dispatch **ON**, GUI close delay **1 ms**
+
+### Experimental (all off by default, and inert)
+
+These settings exist so the diagnostics can be turned on, but **packet prefire is not
+implemented**. The audited blocker is the click state ID: `ServerboundContainerClickPacket` needs a
+menu revision ID that Minecraft 26.3 only advances when the server sends container contents, and
+`OdinAccess.autoLeapTo` needs an open screen. There is no verified way to know either value before
+the menu arrives, and a guessed container id, state id or slot could leap to the wrong teammate, so
+the speculative click is deliberately absent. With `Experimental leap prefire` ON the module logs
+the aborted prediction and runs the normal menu path; it never sends a packet.
+
+| Setting | Default | What it really does |
+|---|---:|---|
+| `Save leap ordering log` | OFF | Writes the observed `uuid -> slot` order to `leaporder.log` |
+| `Leap ordering diagnostics` | OFF | One `savepoint.log` line per menu with uuid, class and slot |
+| `Use local container id predictor` | OFF | Shadow counter from real menu ids for diagnostics only |
+| `Save container id log` | OFF | Appends every observed server container id to `containerid.log` |
+| `QueueX / 0PingX` | OFF | Flushes the queued click when the contents packet is applied |
+| `QueueX: Require learned UUID order` | ON | The early flush also needs the validated uuid to slot mapping |
+| `QueueX: Flush on open packet` | ON | The safe early flush; can be turned off to keep only the normal path |
+| `QueueX: Prefire before client open` | OFF | Inert; no state id exists before the open packet |
+| `QueueX: Debug log` | OFF | One `queuex` line per flush or skip reason |
+| `Experimental leap prefire` | OFF | Gates the state machine; the click is never sent |
+| `Prefire delay (client ticks)` | 1 | Delay the state machine would use before a click |
+| `Require verified slot order` | ON | Refuses prediction without two agreeing menu observations |
+| `Prefire fallback to normal menu` | ON | Falls back instead of ever retrying a guessed click |
+| `Prefire diagnostics` | OFF | Logs prefire state transitions and latencies |
+
+**Slot order is learned, not assumed.** `leaporder.log` records the real order seen in each menu:
+`{"run-000001": {"players": {"<uuid>": ["[0]", "TANK"]}, "slotByUuid": {"<uuid>": 11}}}`. The
+`[n]` value is the ordinal among the observed teammate heads and `slotByUuid` is the menu-wide slot
+index (never the per-container slot, which repeats between the menu and the player inventory), kept
+separate so an ordinal is never mistaken for a slot. The file is local only,
+atomic (temp file then replace), rotated to numbered `leaporder.log.N.old` side archives at 1 MB,
+keeping the five newest archives (an
+unreadable log is moved to `leaporder.log.N.corrupt` instead of being overwritten), preserves
+earlier runs,
+and is never uploaded. One observation never authorises a prediction: two menus in the same run
+must agree before `LeapOrderCache.validated()` is true. A new world, a new dungeon run or a changed
+party fingerprint invalidates the slot mapping, so `run-000002` never inherits `run-000001`'s
+slots. The uuid is read from the item's real profile component, never guessed from a name or skin.
+
+Diagnostics are bounded: one observation per menu, not one per tick. Contents that arrive a tick
+after the screen are retried quietly until the heads are present.
+
+`Profile timings` writes both paths in the same shape, so a normal attempt and a prefire attempt
+can be compared in `savepoint.log`: `path=`, `useItemToClick`, `menuResponse`, `clickLead`,
+`dispatchToClose`, `result` and `total`, all measured with `System.nanoTime()`. A negative
+`clickLead` means the real menu arrived before the speculative click would have been sent. A
+prefire attempt is never marked successful from a local send; only an observed result counts.
+Contents that arrive before the click is handed out abort the prefire with the fallback flag, so a
+late click is never sent and a menu-first request is never mistaken for a confirmed one.
+
+Hidden-GUI rendering (`Hide Spirit Leap GUI Rendering`) is **not implemented**: suppressing the
+draw event is explicitly out of scope, so the menu stays visible. The first-leap-cold /
+later-leaps-prefired policy is also **not implemented**, because it depends on the same unverified
+click. `Require verified slot order` and `Prefire fallback to normal menu` stay ON (they are hard
+gates inside a path that is itself off), so they cannot weaken anything while prefire is disabled.
+
+### Container id prediction and QueueX / 0PingX
+
+The server owns the container counter. In the target version the private
+`ServerPlayer.nextContainerCounter()` is `containerCounter = containerCounter % 100 + 1`, so active
+ids are `1..100` and wrap `100 -> 1`; id `0` is the client-side player inventory and never comes from
+that counter. `ContainerIdPredictor` is a pure shadow: it never allocates an id and never sends a
+packet. Every real open is authoritative and overwrites the guess, and a connection, world or player
+change resets the seed.
+
+| Confidence | Meaning |
+|---|---|
+| `UNKNOWN` | No real open seen since the session started |
+| `SEEDED` | One real open seen, next id can be predicted |
+| `PREDICTED` | One tentative next id is pending for a request |
+| `CONFIRMED` | The pending prediction matched the real open packet |
+| `INVALID` | A mismatch, timeout, reconnect or bad open invalidated prediction |
+
+Observation happens on the inbound `ClientboundOpenScreenPacket`, at the head of
+`ClientPacketListener.handleOpenScreen`, before any screen or render work. The click cannot be
+pre-dispatched before the client open: the container id, state id and slot table do not exist
+client-side until the packets arrive, so `QueueX: Prefire before client open` is deliberately inert.
+The safe flush runs at the return of `ClientPacketListener.handleContainerContent`, after
+`initializeContents` applied the real state id and slots, and still before the frame is rendered.
+It only ever allows one click, and only when confidence is `CONFIRMED` for the same request, the
+learned uuid order is valid, the container matches, the target is alive and the screen is a leap
+menu. A mismatch, timeout, decline, disconnect, world change or party change cancels the pending
+prediction and the normal path continues; no guessed click is ever retried.
+
+`containerid.log` is a separate append-only JSONL file next to `leaporder.log` (that file is a
+rewritten JSON document, so appending to it would corrupt it). Each line has `t`, `gen`, `id`,
+`kind`, `title`, `predicted`, `match`, `inventory` and `confidence`; id `0` is recorded with
+`inventory: true` and never seeds. With `Save container id log` OFF the file is never opened. At
+1 MB the file is rotated to numbered `containerid.log.N.old` side archives, keeping the five newest;
+rotation runs on a dedicated writer thread so the packet and render threads never block on disk.
+
+`Profile timings` also records QueueX points with `System.nanoTime()`: `q0` item use, `q1` open
+packet, `q2` contents applied, `q3` click attempt, `q4` click sent and `q5` prediction reconcile.
+The server's processing time is **not observable** and is reported as `server=unobserved`; the log
+therefore compares client send and inbound arrival only.
+
+### Distance conditions
+
+A condition with a landmark or point and `errorMinDistance`/`errorMaxDistance` uses the inclusive
+`min..max` interval. The module defaults come from Savepoint's **Error / Min Distance (3.0)** and
+**Error / Max Distance (15.0)**. A condition without the interval keeps the legacy
+`AT`/`NEAR`/`IN` radius behaviour, so old presets load exactly as before.
+
+### Worked examples
+
+**Mage at acacia** (the shipped template, disabled until you capture the landmark):
+
+1. Stand where the Mage should be and run `/leaputils landmark acacia`.
+2. `/leaputils fastleap list` shows `off mage-at-acacia`; run `/leaputils fastleap toggle mage-at-acacia`.
+3. Now a left click leaps to the Mage whenever they are 3.0-15.0 blocks from `acacia`.
+   Without the landmark the rule fails with `missing landmark acacia (capture it with ...)`.
+
+**Nearest to `necron_spot`:**
+
+```json
+{ "id": "necron-near", "name": "Nearest to necron spot", "priority": 400,
+  "targetType": "NEAREST_LANDMARK", "landmark": "necron_spot", "radius": 8.0 }
+```
+
+`necron_spot` ships as a default landmark, so this works immediately. The nearest eligible
+teammate within 8 blocks wins.
+
+**"If I'm at yellow pad, leap the Healer":**
+
+```json
+{ "id": "yellow-healer", "name": "Yellow pad healer", "priority": 700, "phase": 2,
+  "selfRegion": "yellow_pad", "targetType": "CLASS", "targetClass": "HEALER" }
+```
+
+The self-region gate is checked before target selection, so the rule only fires while you stand
+in the yellow pad AABB.
+
+### Testing a rule
+
+`/leaputils fastleap test <ruleId>` evaluates without leaping and prints:
+
+```
+[FastLeap] distance=7.4; allowed=3.0..15.0; axes=3D; target=Mage (mage); rule=mage-at-acacia; source=teammate
+```
+
+or `no match: <ruleId>: <reason>`. Use it after capturing a landmark to confirm the interval.
+
+### Importing a quoi config
+
+The Savepoint planner has a **quoi import** button. Importing a `quoi.json` fills every planner
+stage/step, writes the min/max error fields, and stores imported landmarks with the `quoicnfg-`
+prefix so they never collide with your own captures. Importing the same file twice does not
+duplicate anything.
+
+### Troubleshooting
+
+| Symptom | Cause / fix |
+|---|---|
+| `no match: missing landmark acacia` | Capture it: `/leaputils landmark acacia`, or fix the `landmark` name in the rule |
+| `position unknown` | The target entity is not loaded (too far / unloaded). Move closer |
+| Nothing happens on click | Check the item is a Spirit Leap / Infinite Spirit Leap, `Left click` is ON and you have a party |
+| `paused: solo or only N teammate` | Solo or one-teammate parties are paused; this is on purpose |
+| Leap does not fire after the menu closes | The close is scheduled 1 ms after the click is dispatched, but it is best-effort on the client thread; measure with `Profile timings` |
+| `max leaps per second reached` | Lower your click rate or raise the setting |
+| Menu stays open on a miss | Intentional: a failed or refused click never closes the menu |
+
+---
+
+## 6. Commands
 
 Run these in Minecraft chat (prefix with `/`):
 
@@ -208,10 +468,14 @@ Run these in Minecraft chat (prefix with `/`):
 | `/leaputils presets` | Checks GitHub for preset updates |
 | `/leaputils reload` | Reloads presets without restarting |
 | `/leaputils logs` | Opens the logs folder |
+| `/leaputils fastleap list` | Prints every Fast Leap rule with `on`/`off` |
+| `/leaputils fastleap toggle <ruleId>` | Enables or disables one rule |
+| `/leaputils fastleap go [ruleId]` | Evaluates now and leaps if something matches |
+| `/leaputils fastleap test <ruleId>` | Evaluates and prints the decision without leaping |
 
 ---
 
-## 6. The planner GUI
+## 7. The planner GUI
 
 `/leaputils plan` opens a screen where you can:
 
@@ -223,7 +487,7 @@ Run these in Minecraft chat (prefix with `/`):
 
 ---
 
-## 7. Files the mod creates
+## 8. Files the mod creates
 
 All under `config/leaputils/`:
 
@@ -236,11 +500,14 @@ All under `config/leaputils/`:
 | `steplabels.json` | Step names/descriptions from presets |
 | `presets/adg.json` | The bundled ADG preset |
 | `presets/mm7g.json` | The bundled MM7G preset |
+| `fastleap.json` | Optional Fast Leap rule pack override over the built-in pack |
+| `leaporder.log` | Observed Spirit Leap slot order per run, only if you enable the ordering log |
+| `containerid.log` | Append-only JSONL of observed server container ids, only if you enable it |
 | `pov-cache/` | Cached room-geometry bundles (downloaded or built locally) |
 
 ---
 
-## 8. What's NOT automated
+## 9. What's NOT automated
 
 Savepoint only decides **who to leap to**. It does **not**:
 - Attack camp mobs
@@ -254,7 +521,7 @@ Those leaps rely on you opening the menu when the guide says to. The mod waits f
 
 ---
 
-## 9. Building from source
+## 10. Building from source
 
 You need JDK 25.
 
@@ -266,7 +533,7 @@ Output: `build/libs/pov-preview-1.0.0.jar`
 
 ---
 
-## 10. CI / GitHub Actions
+## 11. CI / GitHub Actions
 
 - **build.yml**: Builds on every push to `LeapUtils` (and main). Creates a GitHub release every 2 commits on LeapUtils with the jar attached.
 - **commit-notification.yml**: Posts commit info to a webhook on every push (all branches).
@@ -275,7 +542,7 @@ No action needed from you — both run automatically when you push.
 
 ---
 
-## 11. Troubleshooting
+## 12. Troubleshooting
 
 | Problem | Likely cause / fix |
 |---|---|
