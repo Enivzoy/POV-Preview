@@ -66,9 +66,10 @@ class PrefireState(private val delayTicks: Int = 1, private val timeoutTicks: Lo
     private var clickHandedOut = false
     private var requestSeq = 0L
 
+    // RECONCILED has already matched a server menu and cannot send anything, so it must not hold the
+    // next prefire hostage; only phases that can still change client state count as in flight
     val inFlight: Boolean
-        get() = phase == Phase.ARMED || phase == Phase.USE_ITEM_SENT ||
-            phase == Phase.CLICK_SENT || phase == Phase.RECONCILED
+        get() = phase == Phase.ARMED || phase == Phase.USE_ITEM_SENT || phase == Phase.CLICK_SENT
 
     // every gate must pass, any unknown value aborts before the item is used
     fun prepare(
@@ -169,7 +170,15 @@ class PrefireState(private val delayTicks: Int = 1, private val timeoutTicks: Lo
 
     fun onContents(actualSlotByUuid: Map<String, Int>, nowNs: Long): Reconcile {
         val p = prepared ?: return Reconcile.NOT_READY
-        if (phase == Phase.ABORTED) return Reconcile.STALE
+        // contents are only meaningful for a dispatched click; a done or aborted request has nothing left to check
+        if (phase != Phase.CLICK_SENT && phase != Phase.RECONCILED) {
+            if (phase == Phase.ARMED || phase == Phase.USE_ITEM_SENT) {
+                // the contents beat the held click, so it must never be sent late and cannot reconcile
+                abort("menu opened before prefire", fallback = true)
+                return Reconcile.BEFORE_CLICK
+            }
+            return Reconcile.STALE
+        }
         val actual = actualSlotByUuid[p.targetUuid] ?: run {
             abort("target missing from menu", fallback = true)
             return Reconcile.MISMATCH
@@ -178,10 +187,8 @@ class PrefireState(private val delayTicks: Int = 1, private val timeoutTicks: Lo
             abort("slot mismatch", fallback = true)
             return Reconcile.MISMATCH
         }
-        if (phase != Phase.ABORTED) {
-            latency.l2 = latency.l2 ?: nowNs
-            phase = Phase.RECONCILED
-        }
+        latency.l2 = latency.l2 ?: nowNs
+        phase = Phase.RECONCILED
         return Reconcile.MATCH
     }
 

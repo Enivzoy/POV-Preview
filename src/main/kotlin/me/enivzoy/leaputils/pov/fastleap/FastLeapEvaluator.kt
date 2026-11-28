@@ -149,7 +149,8 @@ object FastLeapEvaluator {
         val name = ctx.lastLeapedName?.trim().orEmpty()
         if (name.isEmpty()) return null
         val key = ctx.key(name)
-        val tm = eligible(ctx).firstOrNull { ctx.key(it.name) == key } ?: return null
+        // bypass skipLastLeaped here: this fallback is the explicit request to repeat that target
+        val tm = eligible(ctx, allowLastLeaped = true).firstOrNull { ctx.key(it.name) == key } ?: return null
         return FastLeapResult.Plan(
             rule = FastLeapRule(
                 id = "fallback",
@@ -215,18 +216,19 @@ object FastLeapEvaluator {
     }
 
     // filters run before target selection, so every selector sees the same pool
-    private fun eligible(ctx: FastLeapContext): List<SpTmate> {
+    // allowLastLeaped is only used by the last-leaped fallback, which exists to repeat that target
+    private fun eligible(ctx: FastLeapContext, allowLastLeaped: Boolean = false): List<SpTmate> {
         val lastKey = ctx.lastLeapedName?.let { ctx.key(it) }
         return ctx.teammates.filter { tm ->
             if (ctx.skipDead && tm.dead) return@filter false
             val key = ctx.key(tm.name)
             if (key.isEmpty()) return@filter false
             if (tm.clazz == DungeonClass.EMPTY) return@filter false
-            // never leap to self, even if the caller forgot to strip it
+            // Ignore self is a user setting: ON strips the local player, OFF leaves it targetable
             if (ctx.ignoreSelf && ctx.myName != null && key == ctx.key(ctx.myName)) return@filter false
             if (ctx.blacklist.any { ctx.key(it) == key }) return@filter false
             if (ctx.whitelist.isNotEmpty() && ctx.whitelist.none { ctx.key(it) == key }) return@filter false
-            if (ctx.skipLastLeaped && lastKey != null && key == lastKey) return@filter false
+            if (!allowLastLeaped && ctx.skipLastLeaped && lastKey != null && key == lastKey) return@filter false
             // with the menu open, only offer the heads the server actually sent
             if (ctx.menuOpen && ctx.skipNotInMenu && !tm.inMenu) return@filter false
             true

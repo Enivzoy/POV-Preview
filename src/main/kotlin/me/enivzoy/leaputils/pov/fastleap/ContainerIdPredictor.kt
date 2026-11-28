@@ -67,7 +67,7 @@ class ContainerIdPredictor(historyLimit: Int = 64) {
         lastConfirmedRequestId = NO_REQUEST
     }
 
-    fun observe(id: Int, menuKind: String, atMs: Long, nowTick: Long): Result {
+    fun observe(id: Int, menuKind: String, atMs: Long): Result {
         val inventory = id == ID_INVENTORY
         val expected = pending
         // a pending prediction from an older connection can never confirm this open

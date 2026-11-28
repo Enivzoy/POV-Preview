@@ -20,7 +20,8 @@ object QueueXGate {
         val withinBudget: Boolean,
         val targetAlive: Boolean,
         val slotsApplied: Boolean,
-        val flushOnOpenPacket: Boolean = true,
+        // off by default: a caller that forgets this must not silently get the early flush
+        val flushOnOpenPacket: Boolean = false,
     )
 
     enum class Deny {

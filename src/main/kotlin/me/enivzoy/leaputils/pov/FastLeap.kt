@@ -104,7 +104,7 @@ object FastLeap : Module(
     val pauseOnGui by BooleanSetting("Pause when GUI open", true, desc = "Never leap while an unrelated screen is open")
     val pauseOnDead by BooleanSetting("Pause when dead", true, desc = "Never evaluate while you are dead or dying")
     val pauseOnSolo by BooleanSetting("Pause when solo", true, desc = "No leap with fewer than two party teammates, one throttled message")
-    val ignoreSelf by BooleanSetting("Ignore self", true, desc = "Never offer yourself as a leap target")
+    val ignoreSelf by BooleanSetting("Ignore self", true, desc = "When ON, never offer yourself as a leap target; OFF lets self be selected")
     val caseInsensitive by BooleanSetting("Case-insensitive names", true, desc = "Match teammate, menu and rule names without case")
     val skipDead by BooleanSetting("Skip dead", true, desc = "Never offer a dead teammate as a target")
     val skipNotInMenu by BooleanSetting("Skip not in menu", true, desc = "Only dispatch to a teammate Odin can see in the open leap menu")
@@ -371,7 +371,7 @@ object FastLeap : Module(
         // id 0 is the player inventory and never came from the server counter
         if (containerId < ContainerIdPredictor.MIN_ID) return
         val kind = if (isLeapTitle(title)) ContainerIdPredictor.KIND_LEAP else ContainerIdPredictor.KIND_CONTAINER
-        val res = containerIdPredictor.observe(containerId, kind, System.currentTimeMillis(), tickCounter)
+        val res = containerIdPredictor.observe(containerId, kind, System.currentTimeMillis())
         if (saveContainerIds) ContainerIdLog.append(connectionGeneration, kind, title, res)
         if (queueXDebugLog && res.mismatch) SpLog.info("queuex", "id mismatch id=$containerId kind=$kind")
         // reconcile only against the menu the request was armed for
@@ -432,7 +432,16 @@ object FastLeap : Module(
         val roster = runCatching { DungeonUtils.leapTeammates }.getOrDefault(emptyList())
         val target = roster.firstOrNull { it.name.equals(name, ignoreCase = true) } ?: return false
         val uuid = runCatching { OdinAccess.entityOf(target)?.uuid?.toString() }.getOrNull() ?: return false
-        return leapOrderCache.slotFor(uuid) != null
+        // resolve against the live roster, so a teammate who left cannot keep a stale slot
+        return leapOrderCache.slotFor(uuid, liveRosterUuids(roster)) != null
+    }
+
+    // uuids that can be clicked right now; an unreadable roster falls back to the last observation
+    private fun liveRosterUuids(roster: List<DungeonPlayer>): Set<String>? {
+        val uuids = runCatching {
+            roster.mapNotNull { OdinAccess.entityOf(it)?.uuid?.toString() }.toSet()
+        }.getOrDefault(emptySet())
+        return uuids.takeIf { it.isNotEmpty() }
     }
 
     private fun onTick() {
@@ -755,7 +764,7 @@ object FastLeap : Module(
         val res = FastLeapEvaluator.evaluate(enabledRules(), ctx)
         val plan = res as? FastLeapResult.Plan ?: return
         val uuid = runCatching { OdinAccess.entityOf(resolveTarget(plan.teammate.name) ?: return)?.uuid?.toString() }.getOrNull()
-        val slot = uuid?.let { leapOrderCache.slotFor(it) }
+        val slot = uuid?.let { leapOrderCache.slotFor(it, liveRosterUuids(runCatching { DungeonUtils.leapTeammates }.getOrDefault(emptyList()))) }
         // the slot gate cannot be weakened by a setting: an unvalidated order never predicts
         // with the hard gate on, a confirmed uuid->slot mapping is required; with it off the
         // state machine still refuses a missing slot, so no packet can ever be guessed

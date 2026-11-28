@@ -30,6 +30,8 @@ class QueueXGateTest {
         enabled, requestPresent, sameRequest, generationOk, alreadyDispatched,
         confidence, confirmedRequestId, requestId, learnedOrder, requireLearnedOrder,
         containerMatches, leapScreen, withinBudget, targetAlive, slotsApplied,
+        // the gate default is deny; tests that expect an allow must opt in explicitly
+        flushOnOpenPacket = true,
     )
 
     @Test
@@ -107,9 +109,38 @@ class QueueXGateTest {
 
     @Test
     fun aMismatchIsNeverRetried() {
-        val afterMismatch = input(confidence = ContainerIdPredictor.Confidence.INVALID, containerMatches = false)
-        assertEquals(Deny.PREDICTION_NOT_CONFIRMED, QueueXGate.decide(afterMismatch).deny)
+        // exercise the real predictor, not just one hand-written deny
+        val predictor = ContainerIdPredictor()
+        predictor.observe(41, ContainerIdPredictor.KIND_CONTAINER, 0L)
+        assertEquals(42, predictor.predictNext(9L, ContainerIdPredictor.KIND_LEAP, 0L, 5L))
+        // a different menu arrives, so the guess is a mismatch and must be discarded
+        assertTrue(predictor.observe(43, ContainerIdPredictor.KIND_LEAP, 1L).mismatch)
+
+        fun attempt() = QueueXGate.decide(
+            input(
+                confidence = predictor.confidence,
+                confirmedRequestId = predictor.lastConfirmedRequestId,
+                requestId = 9L,
+            )
+        )
+        // the first retry is denied because the mismatch invalidated the prediction ...
+        assertEquals(Deny.PREDICTION_NOT_CONFIRMED, attempt().deny)
+        // ... and a second attempt on the same stale request is denied again
+        assertEquals(Deny.PREDICTION_NOT_CONFIRMED, attempt().deny)
         // a duplicate content callback after a real click is also denied
         assertEquals(Deny.ALREADY_DISPATCHED, QueueXGate.decide(input(alreadyDispatched = true)).deny)
+    }
+
+    @Test
+    fun aCallerThatForgetsTheFlushFlagIsDenied() {
+        val forgot = QueueXGate.Input(
+            enabled = true, requestPresent = true, sameRequest = true, generationOk = true,
+            alreadyDispatched = false, confidence = ContainerIdPredictor.Confidence.CONFIRMED,
+            confirmedRequestId = 9L, requestId = 9L, learnedOrder = true, requireLearnedOrder = true,
+            containerMatches = true, leapScreen = true, withinBudget = true, targetAlive = true,
+            slotsApplied = true,
+        )
+        // the default must be the safe one: no early flush unless the caller opts in
+        assertEquals(Deny.FLUSH_DISABLED, QueueXGate.decide(forgot).deny)
     }
 }

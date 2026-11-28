@@ -216,7 +216,8 @@ Savepoint still exists for the "open the menu yourself and follow the guide" wor
    lowest measured distance wins (ties keep list order). It is OFF by default, so the default is
    still first-match-wins.
 5. If nothing matched and `Fallback` is set, the fallback runs: nearest teammate to a landmark,
-   or the last teammate you leaped to (`LAST_LEAPED`).
+   or the last teammate you leaped to (`LAST_LEAPED`). `LAST_LEAPED` is an explicit request to
+   repeat that target, so it still works when `Skip last leaped` is ON.
 
 Target selection never guesses a position. A rule with a landmark condition fails with
 `missing landmark <name>` until you capture it.
@@ -320,9 +321,11 @@ the aborted prediction and runs the normal menu path; it never sends a packet.
 
 **Slot order is learned, not assumed.** `leaporder.log` records the real order seen in each menu:
 `{"run-000001": {"players": {"<uuid>": ["[0]", "TANK"]}, "slotByUuid": {"<uuid>": 11}}}`. The
-`[n]` value is the ordinal among the observed teammate heads and `slotByUuid` is the absolute
-container slot, kept separate so an ordinal is never mistaken for a slot. The file is local only,
-atomic (temp file then replace), rotated to numbered `leaporder.log.N.old` side archives at 1 MB (an
+`[n]` value is the ordinal among the observed teammate heads and `slotByUuid` is the menu-wide slot
+index (never the per-container slot, which repeats between the menu and the player inventory), kept
+separate so an ordinal is never mistaken for a slot. The file is local only,
+atomic (temp file then replace), rotated to numbered `leaporder.log.N.old` side archives at 1 MB,
+keeping the five newest archives (an
 unreadable log is moved to `leaporder.log.N.corrupt` instead of being overwritten), preserves
 earlier runs,
 and is never uploaded. One observation never authorises a prediction: two menus in the same run
@@ -338,6 +341,8 @@ can be compared in `savepoint.log`: `path=`, `useItemToClick`, `menuResponse`, `
 `dispatchToClose`, `result` and `total`, all measured with `System.nanoTime()`. A negative
 `clickLead` means the real menu arrived before the speculative click would have been sent. A
 prefire attempt is never marked successful from a local send; only an observed result counts.
+Contents that arrive before the click is handed out abort the prefire with the fallback flag, so a
+late click is never sent and a menu-first request is never mistaken for a confirmed one.
 
 Hidden-GUI rendering (`Hide Spirit Leap GUI Rendering`) is **not implemented**: suppressing the
 draw event is explicitly out of scope, so the menu stays visible. The first-leap-cold /
@@ -377,7 +382,8 @@ prediction and the normal path continues; no guessed click is ever retried.
 rewritten JSON document, so appending to it would corrupt it). Each line has `t`, `gen`, `id`,
 `kind`, `title`, `predicted`, `match`, `inventory` and `confidence`; id `0` is recorded with
 `inventory: true` and never seeds. With `Save container id log` OFF the file is never opened. At
-1 MB the file is rotated to numbered `containerid.log.N.old` side archives.
+1 MB the file is rotated to numbered `containerid.log.N.old` side archives, keeping the five newest;
+rotation runs on a dedicated writer thread so the packet and render threads never block on disk.
 
 `Profile timings` also records QueueX points with `System.nanoTime()`: `q0` item use, `q1` open
 packet, `q2` contents applied, `q3` click attempt, `q4` click sent and `q5` prediction reconcile.

@@ -617,8 +617,10 @@ class FastLeapTest {
         request()
         FastLeapState.markDispatched(1_000_000L)
         val gen = FastLeapState.generation
-        val token = FastLeapState.scheduleClose(1_000_000L, 0L, "screen")
-        assertNotNull(token)
+        val token = assertNotNull(FastLeapState.scheduleClose(1_000_000L, 0L, "screen"))
+        // the token must carry the live generation and be due now, so the drop below is the bump
+        assertEquals(gen, token.generation)
+        assertEquals(token, FastLeapState.closeDue(token.deadlineNs))
         FastLeapState.bumpGeneration()
         // both the generation and the token are gone, so a late close cannot fire
         assertEquals(gen + 1, FastLeapState.generation)
@@ -1103,5 +1105,22 @@ class FastLeapTest {
         )
         assertEquals("Bob", (res as FastLeapResult.Plan).teammate.name)
         assertEquals("Fallback nearest to spot", res.rule.name)
+    }
+
+    @Test
+    fun lastLeapedFallbackStillWorksWhenSkipLastLeapedIsOn() {
+        val res = FastLeapEvaluator.evaluate(
+            emptyList(),
+            ctx(
+                teammates = listOf(tm("Bob", DungeonClass.TANK)),
+                lastLeapedName = "Bob",
+                skipLastLeaped = true,
+                fallbackLastLeaped = true,
+            ),
+            applyFallback = true,
+        )
+        // the explicit repeat must not be filtered out by the setting it exists to override
+        assertEquals("Bob", (res as FastLeapResult.Plan).teammate.name)
+        assertEquals("Fallback last leaped", res.rule.name)
     }
 }

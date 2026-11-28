@@ -22,13 +22,16 @@ class LeapOrderCache(private val minObservations: Int = 2) {
         get() = runId
 
     // a new run or a changed party changes the identity, an old mapping must never leak into it
+    @Synchronized
     fun beginRun(index: Int, partyUuids: Collection<String>): Record? {
         val key = fingerprint(partyUuids)
+        // clamp before storing: the run id and the stored index must agree even on negative input
+        val run = index.coerceAtLeast(0)
         // the run marker is part of the identity, so two runs of the same party stay separate
-        if (runId.isNotEmpty() && (key != partyKey || index != runIndex)) invalidate()
-        if (runId.isEmpty() || key != partyKey || index != runIndex) {
-            runId = "run-%06d".format(index.coerceAtLeast(0))
-            runIndex = index
+        if (runId.isNotEmpty() && (key != partyKey || run != runIndex)) invalidate()
+        if (runId.isEmpty()) {
+            runId = "run-%06d".format(run)
+            runIndex = run
             partyKey = key
             entries = emptyList()
         }
@@ -36,6 +39,7 @@ class LeapOrderCache(private val minObservations: Int = 2) {
     }
 
     // one observation is never enough to predict a slot
+    @Synchronized
     fun observe(raw: List<Entry>): Record? {
         if (runId.isEmpty() || raw.isEmpty()) return null
         val normalized = raw
@@ -57,6 +61,7 @@ class LeapOrderCache(private val minObservations: Int = 2) {
         return record()
     }
 
+    @Synchronized
     fun validated(): Boolean {
         if (partyKey.isEmpty()) return false
         val list = observations[partyKey] ?: return false
@@ -64,9 +69,17 @@ class LeapOrderCache(private val minObservations: Int = 2) {
         return list.all { it == list.first() }
     }
 
-    fun slotFor(uuid: String): Int? = resolve(uuid, entries.map { it.uuid }.toSet())?.slot
+    // number of agreeing observations retained for the active party, exposed so its bound is testable
+    @Synchronized
+    internal fun evidenceCount(): Int = observations[partyKey]?.size ?: 0
+
+    // liveUuids is the roster that can actually be clicked right now; null keeps the last observed entries
+    @Synchronized
+    fun slotFor(uuid: String, liveUuids: Set<String>? = null): Int? =
+        resolve(uuid, liveUuids ?: entries.map { it.uuid }.toSet())?.slot
 
     // ambiguous or stale mappings resolve to null, never to a guessed slot
+    @Synchronized
     fun resolve(uuid: String, liveUuids: Set<String>): Entry? {
         if (!validated()) return null
         val key = uuid.trim().lowercase()
@@ -75,9 +88,11 @@ class LeapOrderCache(private val minObservations: Int = 2) {
         return matches.singleOrNull()
     }
 
+    @Synchronized
     fun record(): Record? =
         if (runId.isEmpty() || entries.isEmpty()) null else Record(runId, partyKey, entries.toList())
 
+    @Synchronized
     fun invalidate() {
         runId = ""
         runIndex = Int.MIN_VALUE
@@ -87,6 +102,7 @@ class LeapOrderCache(private val minObservations: Int = 2) {
     }
 
     // the persisted shape keeps the ordinal and the absolute slot apart on purpose
+    @Synchronized
     fun logEntry(): Map<String, Map<String, Any>>? {
         val rec = record() ?: return null
         val players = LinkedHashMap<String, List<String>>()

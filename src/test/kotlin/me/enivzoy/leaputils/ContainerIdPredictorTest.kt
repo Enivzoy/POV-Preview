@@ -18,7 +18,7 @@ class ContainerIdPredictorTest {
     private fun seeded(id: Int, generation: Int = 0): ContainerIdPredictor {
         val p = ContainerIdPredictor()
         if (generation != 0) p.onConnection(generation)
-        p.observe(id, chest, 0L, 0L)
+        p.observe(id, chest, 0L)
         return p
     }
 
@@ -27,7 +27,7 @@ class ContainerIdPredictorTest {
         val p = seeded(41)
         assertEquals(Confidence.SEEDED, p.confidence)
         assertEquals(42, p.predictNext(7L, leap, 10L, 5L))
-        assertTrue(p.observe(42, leap, 1L, 11L).matched)
+        assertTrue(p.observe(42, leap, 1L).matched)
         assertEquals(Confidence.CONFIRMED, p.confidence)
         assertEquals(7L, p.lastConfirmedRequestId)
         assertEquals(42, p.lastAuthoritativeId)
@@ -46,7 +46,7 @@ class ContainerIdPredictorTest {
     fun unexpectedOpenInvalidatesAndKeepsTheServerId() {
         val p = seeded(41)
         p.predictNext(1L, leap, 0L, 5L)
-        val res = p.observe(43, chest, 1L, 1L)
+        val res = p.observe(43, chest, 1L)
         assertTrue(res.mismatch)
         assertEquals(Confidence.INVALID, p.confidence)
         assertEquals(1, p.mismatchCount)
@@ -64,7 +64,7 @@ class ContainerIdPredictorTest {
         assertEquals(ContainerIdPredictor.NO_ID, p.lastAuthoritativeId)
         assertFalse(p.confirmedCounterKnown)
         // the next real open is a fresh seed, never a confirmation of the old prediction
-        val res = p.observe(42, leap, 1L, 1L)
+        val res = p.observe(42, leap, 1L)
         assertFalse(res.matched)
         assertEquals(Confidence.SEEDED, p.confidence)
     }
@@ -78,7 +78,7 @@ class ContainerIdPredictorTest {
         assertEquals(Confidence.INVALID, p.confidence)
         assertNull(p.pending)
         // a late open is just a new seed, not the queued confirmation
-        val res = p.observe(42, leap, 1L, 6L)
+        val res = p.observe(42, leap, 1L)
         assertFalse(res.matched)
         assertEquals(ContainerIdPredictor.NO_REQUEST, p.lastConfirmedRequestId)
     }
@@ -86,7 +86,7 @@ class ContainerIdPredictorTest {
     @Test
     fun inventoryIdZeroIsIgnoredForSeeding() {
         val p = ContainerIdPredictor()
-        val res = p.observe(ContainerIdPredictor.ID_INVENTORY, chest, 0L, 0L)
+        val res = p.observe(ContainerIdPredictor.ID_INVENTORY, chest, 0L)
         assertTrue(res.observation.inventory)
         assertFalse(res.seeded)
         assertFalse(p.confirmedCounterKnown)
@@ -119,7 +119,7 @@ class ContainerIdPredictorTest {
     fun aDifferentMenuAtThePredictedIdIsAMismatch() {
         val p = seeded(41)
         p.predictNext(1L, leap, 0L, 5L)
-        val res = p.observe(42, chest, 1L, 1L)
+        val res = p.observe(42, chest, 1L)
         assertTrue(res.mismatch)
         assertEquals(Confidence.INVALID, p.confidence)
     }
@@ -138,7 +138,7 @@ class ContainerIdPredictorTest {
         val p = seeded(41)
         p.predictNext(1L, leap, 0L, 5L)
         p.onConnection(1)
-        val res = p.observe(42, leap, 1L, 1L)
+        val res = p.observe(42, leap, 1L)
         assertFalse(res.matched)
         assertEquals(ContainerIdPredictor.NO_REQUEST, p.lastConfirmedRequestId)
         assertEquals(1, res.observation.generation)
@@ -147,7 +147,7 @@ class ContainerIdPredictorTest {
     @Test
     fun historyIsBounded() {
         val p = ContainerIdPredictor(historyLimit = 4)
-        for (id in 1..10) p.observe(id, chest, id.toLong(), id.toLong())
+        for (id in 1..10) p.observe(id, chest, id.toLong())
         assertEquals(4, p.observations().size)
         assertEquals(7, p.observations().first().id)
     }
@@ -155,7 +155,7 @@ class ContainerIdPredictorTest {
     @Test
     fun negativeHistoryLimitNeverThrows() {
         val p = ContainerIdPredictor(historyLimit = -1)
-        p.observe(5, chest, 0L, 0L)
+        p.observe(5, chest, 0L)
         // a negative cap is clamped to zero, not fed to the trim loop as an impossible target
         assertEquals(0, p.observations().size)
     }
@@ -165,7 +165,7 @@ class ContainerIdPredictorTest {
         val p = seeded(41)
         p.predictNext(1L, leap, 0L, 5L)
         p.onConnection(1)
-        val res = p.observe(42, leap, 1L, 1L)
+        val res = p.observe(42, leap, 1L)
         // the pending prediction belonged to the old connection
         assertNull(res.observation.predictedId)
         assertFalse(res.matched)
@@ -175,7 +175,7 @@ class ContainerIdPredictorTest {
     fun aFreshPredictionCannotReuseThePreviousConfirmation() {
         val p = seeded(41)
         p.predictNext(1L, leap, 0L, 5L)
-        p.observe(42, leap, 1L, 1L)
+        p.observe(42, leap, 1L)
         assertEquals(1L, p.lastConfirmedRequestId)
         p.predictNext(2L, leap, 2L, 5L)
         assertEquals(ContainerIdPredictor.NO_REQUEST, p.lastConfirmedRequestId)
@@ -185,7 +185,7 @@ class ContainerIdPredictorTest {
     @Test
     fun theLogLineKeepsThePredictedKeyWhenThereWasNoPrediction() {
         val p = seeded(41)
-        val res = p.observe(42, leap, 1L, 1L)
+        val res = p.observe(42, leap, 1L)
         val line = ContainerIdLog.encode(0, leap, "Spirit Leap", res)
         // serializeNulls: a missing prediction is an explicit null, the key never disappears
         assertTrue(line.contains("\"predicted\":null"), line)

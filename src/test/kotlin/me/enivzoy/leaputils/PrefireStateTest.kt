@@ -185,8 +185,53 @@ class PrefireStateTest {
         cache.beginRun(1, parties)
         repeat(50) { observe(cache) }
         // repeated agreement does not grow the evidence list without bound
+        assertEquals(2, cache.evidenceCount())
         assertTrue(cache.validated())
         assertEquals(11, cache.slotFor("uuid-a"))
+    }
+
+    @Test
+    fun negativeRunIndexesClampConsistently() {
+        val cache = LeapOrderCache()
+        cache.beginRun(-1, parties)
+        assertEquals("run-000000", cache.currentRunId)
+        // the stored index is clamped too, so -1 and -2 are the same run instead of colliding ids
+        cache.beginRun(-2, parties)
+        assertEquals("run-000000", cache.currentRunId)
+        observe(cache)
+        observe(cache)
+        assertTrue(cache.validated())
+    }
+
+    @Test
+    fun slotForHonoursTheLiveRoster() {
+        val cache = LeapOrderCache()
+        cache.beginRun(1, parties)
+        observe(cache)
+        observe(cache)
+        assertTrue(cache.validated())
+        assertEquals(11, cache.slotFor("uuid-a", setOf("uuid-a", "uuid-b")))
+        // a teammate who left no longer resolves, even though the last observed menu listed them
+        assertNull(cache.slotFor("uuid-a", setOf("uuid-b", "uuid-c")))
+    }
+
+    @Test
+    fun oldArchivesArePrunedToABound() {
+        val dir = Files.createTempDirectory("leaputils-archive-test")
+        try {
+            val file = dir.resolve("leaporder.log")
+            for (n in 1..8) Files.writeString(dir.resolve("leaporder.log.$n.old"), "x")
+            // a plain working file is not an archive
+            Files.writeString(dir.resolve("leaporder.log.tmp"), "x")
+            LeapOrderProbe.prune(file, ".old")
+            val left = LeapOrderProbe.siblingsMatching(file, ".old")
+                .mapNotNull { LeapOrderProbe.archiveNumber(it, file) }
+                .sorted()
+            // the newest five survive, the three oldest are removed
+            assertEquals(listOf(4, 5, 6, 7, 8), left)
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
     }
 
     @Test
@@ -411,6 +456,34 @@ class PrefireStateTest {
         assertEquals(PrefireState.Reconcile.MISMATCH, res)
         assertEquals("slot mismatch", state.failure)
         assertEquals(1, state.clicksIssued)
+    }
+
+    @Test
+    fun contentsBeforeTheClickAbortInsteadOfReconciling() {
+        val state = PrefireState()
+        armed(state)
+        val res = state.onContents(mapOf("uuid-a" to 12), 1_050_000L)
+        // the menu beat the held click, so it can never mark the request reconciled
+        assertEquals(PrefireState.Reconcile.BEFORE_CLICK, res)
+        assertEquals(PrefireState.Phase.ABORTED, state.phase)
+        assertEquals("menu opened before prefire", state.failure)
+        assertTrue(state.fallbackRequired)
+        assertEquals(PrefireState.Action.NONE, state.nextAction(101, 1_100_000L))
+        assertEquals(0, state.clicksIssued)
+    }
+
+    @Test
+    fun reconciledStateDoesNotBlockTheNextPrefire() {
+        val state = PrefireState()
+        armed(state)
+        state.nextAction(101, 1_000_000L)
+        state.onClickSent(1_100_000L)
+        assertEquals(PrefireState.Reconcile.MATCH, state.onContents(mapOf("uuid-a" to 12), 1_200_000L))
+        assertEquals(PrefireState.Phase.RECONCILED, state.phase)
+        // a reconciled request cannot send anything, so it must not hold the next prefire hostage
+        assertFalse(state.inFlight)
+        state.reset()
+        assertNotNull(state.prepare(3, "uuid-b", 8, 43, 13, true, 200))
     }
 
     @Test
